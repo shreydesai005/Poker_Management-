@@ -7,6 +7,7 @@ type Player = {
   name: string;
   rebuys: number;
   cashOut: number;
+  active: boolean;
 };
 
 type Settlement = {
@@ -46,6 +47,7 @@ export default function Home() {
         name: "",
         rebuys: 0,
         cashOut: 0,
+        active: true,
       })
     );
 
@@ -55,7 +57,7 @@ export default function Home() {
   };
 
   // -----------------------------------
-  // PLAYER NAME
+  // UPDATE PLAYER NAME
   // -----------------------------------
 
   const updateName = (id: number, name: string) => {
@@ -83,34 +85,10 @@ export default function Home() {
       name: `Player ${nextId}`,
       rebuys: 0,
       cashOut: 0,
+      active: true,
     };
 
     setPlayers((prev) => [...prev, newPlayer]);
-  };
-
-  // -----------------------------------
-  // REMOVE PLAYER MID GAME
-  // -----------------------------------
-
-  const removePlayer = (id: number) => {
-    if (gameFinished) return;
-
-    if (players.length <= 2) {
-      alert("At least 2 players are required.");
-      return;
-    }
-
-    const player = players.find((p) => p.id === id);
-
-    if (!player) return;
-
-    const confirmRemove = window.confirm(
-      `Remove ${player.name || `Player ${player.id}`} from the game?`
-    );
-
-    if (!confirmRemove) return;
-
-    setPlayers((prev) => prev.filter((player) => player.id !== id));
   };
 
   // -----------------------------------
@@ -122,7 +100,7 @@ export default function Home() {
 
     setPlayers((prev) =>
       prev.map((player) =>
-        player.id === id
+        player.id === id && player.active
           ? {
               ...player,
               rebuys: player.rebuys + 1,
@@ -137,7 +115,7 @@ export default function Home() {
 
     setPlayers((prev) =>
       prev.map((player) =>
-        player.id === id
+        player.id === id && player.active
           ? {
               ...player,
               rebuys: Math.max(0, player.rebuys - 1),
@@ -160,6 +138,65 @@ export default function Home() {
           ? {
               ...player,
               cashOut: Math.max(0, value),
+            }
+          : player
+      )
+    );
+  };
+
+  // -----------------------------------
+  // PLAYER LEAVES TABLE
+  // -----------------------------------
+
+  const markPlayerLeft = (id: number) => {
+    if (gameFinished) return;
+
+    const player = players.find((player) => player.id === id);
+
+    if (!player) return;
+
+    if (player.cashOut <= 0) {
+      alert(
+        `Enter ${
+          player.name || "this player's"
+        } cash-out amount before marking them as left.`
+      );
+      return;
+    }
+
+    const confirmLeave = window.confirm(
+      `${player.name} is leaving with ₹${player.cashOut.toLocaleString(
+        "en-IN"
+      )}. Confirm?`
+    );
+
+    if (!confirmLeave) return;
+
+    setPlayers((prev) =>
+      prev.map((player) =>
+        player.id === id
+          ? {
+              ...player,
+              active: false,
+            }
+          : player
+      )
+    );
+  };
+
+  // -----------------------------------
+  // REOPEN PLAYER
+  // -----------------------------------
+
+  const reopenPlayer = (id: number) => {
+    if (gameFinished) return;
+
+    setPlayers((prev) =>
+      prev.map((player) =>
+        player.id === id
+          ? {
+              ...player,
+              active: true,
             }
           : player
       )
@@ -192,6 +229,14 @@ export default function Home() {
     setGameStarted(false);
     setGameFinished(false);
   };
+
+  // -----------------------------------
+  // ACTIVE PLAYERS COUNT
+  // -----------------------------------
+
+  const activePlayersCount = useMemo(() => {
+    return players.filter((player) => player.active).length;
+  }, [players]);
 
   // -----------------------------------
   // TOTAL INVESTED
@@ -231,6 +276,7 @@ export default function Home() {
         invested,
         cashOut: player.cashOut,
         rawProfit: player.cashOut - invested,
+        active: player.active,
       };
     });
   }, [players, buyIn]);
@@ -338,6 +384,40 @@ export default function Home() {
   }, [adjustedBalances]);
 
   // -----------------------------------
+  // FINISH GAME
+  // -----------------------------------
+
+  const finishGame = () => {
+    const invalidName = players.some(
+      (player) => player.name.trim() === ""
+    );
+
+    if (invalidName) {
+      alert("Please enter a name for every player.");
+      return;
+    }
+
+    const activeWithoutCashOut = players.filter(
+      (player) =>
+        player.active && player.cashOut <= 0
+    );
+
+    if (activeWithoutCashOut.length > 0) {
+      const names = activeWithoutCashOut
+        .map((player) => player.name)
+        .join(", ");
+
+      alert(
+        `Enter final cash-out amounts for: ${names}`
+      );
+
+      return;
+    }
+
+    setGameFinished(true);
+  };
+
+  // -----------------------------------
   // UI
   // -----------------------------------
 
@@ -357,7 +437,8 @@ export default function Home() {
             </h1>
 
             <p className="mt-3 text-gray-400">
-              Manage players, buy-ins, rebuys, cash-outs and settlements.
+              Manage players, buy-ins, rebuys,
+              cash-outs and settlements.
             </p>
           </div>
 
@@ -411,7 +492,9 @@ export default function Home() {
                       min={1}
                       value={buyIn}
                       onChange={(e) =>
-                        setBuyIn(Number(e.target.value))
+                        setBuyIn(
+                          Number(e.target.value)
+                        )
                       }
                       className="w-full bg-transparent px-2 py-4 outline-none"
                     />
@@ -438,7 +521,8 @@ export default function Home() {
                     </h2>
 
                     <p className="mt-1 text-gray-400">
-                      Every player starts with one fixed buy-in.
+                      Every player starts with one
+                      fixed buy-in.
                     </p>
                   </div>
 
@@ -501,10 +585,16 @@ export default function Home() {
           <>
             {/* STATS */}
 
-            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <Stat
-                title="Players"
+                title="Total Players"
                 value={players.length.toString()}
+              />
+
+              <Stat
+                title="Active Players"
+                value={activePlayersCount.toString()}
+                highlight
               />
 
               <Stat
@@ -563,7 +653,8 @@ export default function Home() {
               <div className="space-y-4">
                 {players.map((player) => {
                   const invested =
-                    buyIn * (1 + player.rebuys);
+                    buyIn *
+                    (1 + player.rebuys);
 
                   const rawProfit =
                     player.cashOut - invested;
@@ -571,29 +662,53 @@ export default function Home() {
                   return (
                     <div
                       key={player.id}
-                      className="rounded-2xl border border-white/10 bg-black/20 p-5"
+                      className={`rounded-2xl border p-5 ${
+                        player.active
+                          ? "border-white/10 bg-black/20"
+                          : "border-yellow-500/20 bg-yellow-500/5"
+                      }`}
                     >
                       <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-center">
                         {/* PLAYER INFO */}
 
                         <div className="flex min-w-[260px] items-center gap-4">
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 font-black text-emerald-400">
+                          <div
+                            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full font-black ${
+                              player.active
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : "bg-yellow-500/10 text-yellow-400"
+                            }`}
+                          >
                             {player.id}
                           </div>
 
                           <div className="w-full">
-                            <input
-                              type="text"
-                              disabled={gameFinished}
-                              value={player.name}
-                              onChange={(e) =>
-                                updateName(
-                                  player.id,
-                                  e.target.value
-                                )
-                              }
-                              className="w-full max-w-[220px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-bold outline-none focus:border-emerald-500 disabled:border-transparent disabled:bg-transparent disabled:px-0"
-                            />
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                disabled={
+                                  gameFinished
+                                }
+                                value={player.name}
+                                onChange={(e) =>
+                                  updateName(
+                                    player.id,
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full max-w-[220px] rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-bold outline-none focus:border-emerald-500 disabled:border-transparent disabled:bg-transparent disabled:px-0"
+                              />
+
+                              {player.active ? (
+                                <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400">
+                                  ACTIVE
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-bold text-yellow-400">
+                                  LEFT TABLE
+                                </span>
+                              )}
+                            </div>
 
                             <p className="mt-1 text-sm text-gray-500">
                               Invested ₹
@@ -601,6 +716,15 @@ export default function Home() {
                                 "en-IN"
                               )}
                             </p>
+
+                            {!player.active && (
+                              <p className="mt-1 text-sm font-semibold text-yellow-400">
+                                Cashed out ₹
+                                {player.cashOut.toLocaleString(
+                                  "en-IN"
+                                )}
+                              </p>
+                            )}
                           </div>
                         </div>
 
@@ -615,9 +739,14 @@ export default function Home() {
                             <div className="flex items-center gap-3">
                               <button
                                 onClick={() =>
-                                  removeRebuy(player.id)
+                                  removeRebuy(
+                                    player.id
+                                  )
                                 }
-                                disabled={gameFinished}
+                                disabled={
+                                  gameFinished ||
+                                  !player.active
+                                }
                                 className="h-10 w-10 rounded-lg border border-white/10 bg-white/5 text-xl disabled:cursor-not-allowed disabled:opacity-30"
                               >
                                 −
@@ -629,9 +758,14 @@ export default function Home() {
 
                               <button
                                 onClick={() =>
-                                  addRebuy(player.id)
+                                  addRebuy(
+                                    player.id
+                                  )
                                 }
-                                disabled={gameFinished}
+                                disabled={
+                                  gameFinished ||
+                                  !player.active
+                                }
                                 className="h-10 w-10 rounded-lg bg-emerald-500 font-black text-black disabled:cursor-not-allowed disabled:opacity-30"
                               >
                                 +
@@ -654,13 +788,19 @@ export default function Home() {
                               <input
                                 type="number"
                                 min={0}
-                                disabled={gameFinished}
-                                value={player.cashOut}
+                                disabled={
+                                  gameFinished ||
+                                  !player.active
+                                }
+                                value={
+                                  player.cashOut
+                                }
                                 onChange={(e) =>
                                   updateCashOut(
                                     player.id,
                                     Number(
-                                      e.target.value
+                                      e.target
+                                        .value
                                     )
                                   )
                                 }
@@ -669,7 +809,7 @@ export default function Home() {
                             </div>
                           </div>
 
-                          {/* RAW P/L */}
+                          {/* CURRENT P/L */}
 
                           <div>
                             <p className="mb-2 text-xs uppercase tracking-wider text-gray-500">
@@ -680,12 +820,15 @@ export default function Home() {
                               className={`text-xl font-black ${
                                 rawProfit > 0
                                   ? "text-emerald-400"
-                                  : rawProfit < 0
+                                  : rawProfit <
+                                    0
                                   ? "text-red-400"
                                   : "text-gray-400"
                               }`}
                             >
-                              {rawProfit > 0 ? "+" : ""}
+                              {rawProfit > 0
+                                ? "+"
+                                : ""}
                               ₹
                               {rawProfit.toLocaleString(
                                 "en-IN"
@@ -693,22 +836,42 @@ export default function Home() {
                             </p>
                           </div>
 
-                          {/* REMOVE PLAYER */}
+                          {/* ACTION */}
 
                           <div>
                             <p className="mb-2 text-xs uppercase tracking-wider text-gray-500">
-                              Actions
+                              Status
                             </p>
 
-                            <button
-                              onClick={() =>
-                                removePlayer(player.id)
-                              }
-                              disabled={gameFinished}
-                              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-bold text-red-400 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-30"
-                            >
-                              Remove
-                            </button>
+                            {player.active ? (
+                              <button
+                                onClick={() =>
+                                  markPlayerLeft(
+                                    player.id
+                                  )
+                                }
+                                disabled={
+                                  gameFinished
+                                }
+                                className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm font-bold text-yellow-400 transition hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-30"
+                              >
+                                Player Left
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  reopenPlayer(
+                                    player.id
+                                  )
+                                }
+                                disabled={
+                                  gameFinished
+                                }
+                                className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-400 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-30"
+                              >
+                                Reopen Player
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -719,25 +882,11 @@ export default function Home() {
 
               {!gameFinished ? (
                 <button
-                  onClick={() => {
-                    const invalidName =
-                      players.some(
-                        (player) =>
-                          player.name.trim() === ""
-                      );
-
-                    if (invalidName) {
-                      alert(
-                        "Please enter a name for every player."
-                      );
-                      return;
-                    }
-
-                    setGameFinished(true);
-                  }}
+                  onClick={finishGame}
                   className="mt-8 w-full rounded-xl bg-emerald-500 px-6 py-4 text-lg font-black text-black transition hover:bg-emerald-400"
                 >
-                  Finish Game & Calculate Settlement
+                  Finish Game & Calculate
+                  Settlement
                 </button>
               ) : (
                 <button
@@ -768,8 +917,9 @@ export default function Home() {
                     </h2>
 
                     <p className="mt-2 text-gray-400">
-                      Any mismatch is divided equally across all
-                      players.
+                      Players who left earlier
+                      remain part of the final
+                      accounting.
                     </p>
                   </div>
 
@@ -780,34 +930,39 @@ export default function Home() {
 
                 {/* ADJUSTMENT */}
 
-                {Math.abs(difference) > 0.01 && (
+                {Math.abs(difference) >
+                  0.01 && (
                   <div className="mt-6 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-6">
                     <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
                       <div>
                         <p className="text-lg font-black text-yellow-300">
-                          Equal Adjustment Applied
+                          Equal Adjustment
+                          Applied
                         </p>
 
                         <p className="mt-2 text-sm text-gray-300">
                           {difference < 0
-                            ? "The cash-out total is lower than the money invested. The missing amount has been added equally to every player's P/L."
-                            : "The cash-out total is higher than the money invested. The extra amount has been subtracted equally from every player's P/L."}
+                            ? "The recorded cash is lower than the total invested amount, so the missing amount is added equally to every player."
+                            : "The recorded cash is higher than the total invested amount, so the extra amount is subtracted equally from every player."}
                         </p>
                       </div>
 
                       <div className="text-left md:text-right">
                         <p className="text-xs uppercase tracking-wider text-gray-500">
-                          Adjustment Per Player
+                          Adjustment Per
+                          Player
                         </p>
 
                         <p
                           className={`mt-1 text-3xl font-black ${
-                            adjustmentPerPlayer > 0
+                            adjustmentPerPlayer >
+                            0
                               ? "text-emerald-400"
                               : "text-red-400"
                           }`}
                         >
-                          {adjustmentPerPlayer > 0
+                          {adjustmentPerPlayer >
+                          0
                             ? "+"
                             : ""}
                           ₹
@@ -840,7 +995,9 @@ export default function Home() {
                         title="Difference"
                         value={`₹${Math.abs(
                           difference
-                        ).toLocaleString("en-IN")}`}
+                        ).toLocaleString(
+                          "en-IN"
+                        )}`}
                       />
                     </div>
                   </div>
@@ -853,21 +1010,27 @@ export default function Home() {
                     Who Pays Whom
                   </h3>
 
-                  {settlements.length === 0 ? (
+                  {settlements.length ===
+                  0 ? (
                     <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-6 text-gray-400">
                       No transfers required.
                     </div>
                   ) : (
                     <div className="mt-4 space-y-3">
                       {settlements.map(
-                        (settlement, index) => (
+                        (
+                          settlement,
+                          index
+                        ) => (
                           <div
                             key={index}
                             className="flex flex-col justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-5 sm:flex-row sm:items-center"
                           >
                             <div className="flex items-center gap-3 text-lg">
                               <span className="font-bold text-red-400">
-                                {settlement.from}
+                                {
+                                  settlement.from
+                                }
                               </span>
 
                               <span className="text-gray-600">
@@ -875,7 +1038,9 @@ export default function Home() {
                               </span>
 
                               <span className="font-bold text-emerald-400">
-                                {settlement.to}
+                                {
+                                  settlement.to
+                                }
                               </span>
                             </div>
 
@@ -903,106 +1068,136 @@ export default function Home() {
                   </h3>
 
                   <div className="overflow-x-auto rounded-2xl border border-white/10">
-                    <div className="min-w-[850px]">
-                      <div className="grid grid-cols-7 bg-white/5 px-5 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">
+                    <div className="min-w-[950px]">
+                      <div className="grid grid-cols-8 bg-white/5 px-5 py-4 text-xs font-bold uppercase tracking-wider text-gray-500">
                         <span>Player</span>
+                        <span>Status</span>
                         <span>Rebuys</span>
                         <span>Invested</span>
                         <span>Cash Out</span>
-                        <span>Original P/L</span>
-                        <span>Adjustment</span>
+                        <span>
+                          Original P/L
+                        </span>
+                        <span>
+                          Adjustment
+                        </span>
                         <span>Final P/L</span>
                       </div>
 
-                      {adjustedBalances.map((player) => (
-                        <div
-                          key={player.id}
-                          className="grid grid-cols-7 border-t border-white/10 px-5 py-4 text-sm"
-                        >
-                          <span className="font-semibold">
-                            {player.name}
-                          </span>
-
-                          <span>{player.rebuys}</span>
-
-                          <span>
-                            ₹
-                            {player.invested.toLocaleString(
-                              "en-IN"
-                            )}
-                          </span>
-
-                          <span>
-                            ₹
-                            {player.cashOut.toLocaleString(
-                              "en-IN"
-                            )}
-                          </span>
-
-                          <span
-                            className={
-                              player.rawProfit > 0
-                                ? "font-bold text-emerald-400"
-                                : player.rawProfit < 0
-                                ? "font-bold text-red-400"
-                                : ""
-                            }
+                      {adjustedBalances.map(
+                        (player) => (
+                          <div
+                            key={player.id}
+                            className="grid grid-cols-8 border-t border-white/10 px-5 py-4 text-sm"
                           >
-                            {player.rawProfit > 0
-                              ? "+"
-                              : ""}
-                            ₹
-                            {player.rawProfit.toLocaleString(
-                              "en-IN",
-                              {
-                                maximumFractionDigits: 2,
-                              }
-                            )}
-                          </span>
+                            <span className="font-semibold">
+                              {player.name}
+                            </span>
 
-                          <span
-                            className={
-                              player.adjustment > 0
-                                ? "font-bold text-emerald-400"
-                                : player.adjustment < 0
-                                ? "font-bold text-red-400"
-                                : ""
-                            }
-                          >
-                            {player.adjustment > 0
-                              ? "+"
-                              : ""}
-                            ₹
-                            {player.adjustment.toLocaleString(
-                              "en-IN",
-                              {
-                                maximumFractionDigits: 2,
+                            <span
+                              className={
+                                player.active
+                                  ? "font-semibold text-emerald-400"
+                                  : "font-semibold text-yellow-400"
                               }
-                            )}
-                          </span>
+                            >
+                              {player.active
+                                ? "Active"
+                                : "Left"}
+                            </span>
 
-                          <span
-                            className={
-                              player.adjustedProfit > 0
-                                ? "font-black text-emerald-400"
-                                : player.adjustedProfit < 0
-                                ? "font-black text-red-400"
-                                : "font-black text-gray-400"
-                            }
-                          >
-                            {player.adjustedProfit > 0
-                              ? "+"
-                              : ""}
-                            ₹
-                            {player.adjustedProfit.toLocaleString(
-                              "en-IN",
-                              {
-                                maximumFractionDigits: 2,
+                            <span>
+                              {player.rebuys}
+                            </span>
+
+                            <span>
+                              ₹
+                              {player.invested.toLocaleString(
+                                "en-IN"
+                              )}
+                            </span>
+
+                            <span>
+                              ₹
+                              {player.cashOut.toLocaleString(
+                                "en-IN"
+                              )}
+                            </span>
+
+                            <span
+                              className={
+                                player.rawProfit >
+                                0
+                                  ? "font-bold text-emerald-400"
+                                  : player.rawProfit <
+                                    0
+                                  ? "font-bold text-red-400"
+                                  : ""
                               }
-                            )}
-                          </span>
-                        </div>
-                      ))}
+                            >
+                              {player.rawProfit >
+                              0
+                                ? "+"
+                                : ""}
+                              ₹
+                              {player.rawProfit.toLocaleString(
+                                "en-IN",
+                                {
+                                  maximumFractionDigits: 2,
+                                }
+                              )}
+                            </span>
+
+                            <span
+                              className={
+                                player.adjustment >
+                                0
+                                  ? "font-bold text-emerald-400"
+                                  : player.adjustment <
+                                    0
+                                  ? "font-bold text-red-400"
+                                  : ""
+                              }
+                            >
+                              {player.adjustment >
+                              0
+                                ? "+"
+                                : ""}
+                              ₹
+                              {player.adjustment.toLocaleString(
+                                "en-IN",
+                                {
+                                  maximumFractionDigits: 2,
+                                }
+                              )}
+                            </span>
+
+                            <span
+                              className={
+                                player.adjustedProfit >
+                                0
+                                  ? "font-black text-emerald-400"
+                                  : player.adjustedProfit <
+                                    0
+                                  ? "font-black text-red-400"
+                                  : "font-black text-gray-400"
+                              }
+                            >
+                              {player.adjustedProfit >
+                              0
+                                ? "+"
+                                : ""}
+                              ₹
+                              {player.adjustedProfit.toLocaleString(
+                                "en-IN",
+                                {
+                                  maximumFractionDigits: 2,
+                                }
+                              )}
+                            </span>
+                          </div>
+                        )
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1029,7 +1224,9 @@ export default function Home() {
                             : ""
                         }`}
                       >
-                        {difference > 0 ? "+" : ""}
+                        {difference > 0
+                          ? "+"
+                          : ""}
                         ₹
                         {difference.toLocaleString(
                           "en-IN",
@@ -1046,7 +1243,8 @@ export default function Home() {
                       </p>
 
                       <p className="mt-1 text-xl font-bold">
-                        {adjustmentPerPlayer > 0
+                        {adjustmentPerPlayer >
+                        0
                           ? "+"
                           : ""}
                         ₹
@@ -1066,7 +1264,9 @@ export default function Home() {
 
                       <p className="mt-1 text-xl font-black text-emerald-400">
                         ₹
-                        {Math.abs(finalBalance) < 0.01
+                        {Math.abs(
+                          finalBalance
+                        ) < 0.01
                           ? "0"
                           : finalBalance.toLocaleString(
                               "en-IN",
@@ -1080,6 +1280,8 @@ export default function Home() {
                 </div>
               </section>
             )}
+
+            {/* NEW GAME */}
 
             <button
               onClick={resetGame}
