@@ -1,6 +1,8 @@
+
 "use client";
 
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -8,16 +10,18 @@ import {
 } from "react";
 
 import Link from "next/link";
+
 import {
   useRouter,
   useSearchParams,
 } from "next/navigation";
 
+
 import { supabase } from "@/lib/supabase";
 
-// =====================================
+// ======================================================
 // MONEY HELPERS
-// =====================================
+// ======================================================
 
 const toPaise = (rupees: number) => {
   return Math.round(rupees * 100);
@@ -27,9 +31,18 @@ const toRupees = (paise: number) => {
   return paise / 100;
 };
 
-// =====================================
+function formatMoney(value: number) {
+  const safeValue = toRupees(toPaise(value));
+
+  return `₹${safeValue.toLocaleString("en-IN", {
+    minimumFractionDigits: Number.isInteger(safeValue) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+// ======================================================
 // TYPES
-// =====================================
+// ======================================================
 
 type Player = {
   id: number;
@@ -39,6 +52,24 @@ type Player = {
   cashOut: number;
   cashOutEntered: boolean;
   active: boolean;
+};
+
+type PlayerRow = {
+  id: string;
+  name: string;
+  rebuys: number;
+  cash_out: number | string;
+  cash_out_entered: boolean;
+  active: boolean;
+  created_at: string;
+};
+
+type LoadedGame = {
+  id: string;
+  user_id: string;
+  buy_in: number | string;
+  status: string;
+  room_code: string | null;
 };
 
 type Settlement = {
@@ -58,100 +89,57 @@ type SavedSettlement = {
   paid_at: string | null;
 };
 
-type LoadedGame = {
+type SettlementRow = {
   id: string;
-  user_id: string;
-  buy_in: number;
-  status: string;
-  room_code: string | null;
+  game_id: string;
+  payer_name: string;
+  receiver_name: string;
+  amount: number | string;
+  status: "pending" | "paid";
+  created_at: string;
+  paid_at: string | null;
 };
 
-// =====================================
-// PAGE
-// =====================================
+// ======================================================
+// MAIN POKER MANAGER
+// ======================================================
 
-export default function Home() {
+function PokerManager() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [
-    numberOfPlayers,
-    setNumberOfPlayers,
-  ] = useState(4);
+  const [numberOfPlayers, setNumberOfPlayers] = useState(4);
+  const [buyIn, setBuyIn] = useState(500);
 
-  const [
-    buyIn,
-    setBuyIn,
-  ] = useState(500);
+  const [players, setPlayers] = useState<Player[]>([]);
 
-  const [
-    players,
-    setPlayers,
-  ] = useState<Player[]>([]);
+  const [savedSettlements, setSavedSettlements] = useState<
+    SavedSettlement[]
+  >([]);
 
-  const [
-    savedSettlements,
-    setSavedSettlements,
-  ] = useState<SavedSettlement[]>([]);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [gameFinished, setGameFinished] = useState(false);
 
-  const [
-    gameStarted,
-    setGameStarted,
-  ] = useState(false);
+  const [gameId, setGameId] = useState<string | null>(null);
 
-  const [
-    gameFinished,
-    setGameFinished,
-  ] = useState(false);
+  const [hostUserId, setHostUserId] = useState<string | null>(null);
 
-  const [
-    gameId,
-    setGameId,
-  ] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(
+    null
+  );
 
-  const [
-    hostUserId,
-    setHostUserId,
-  ] = useState<string | null>(null);
+  const [roomCode, setRoomCode] = useState("");
+  const [joinCode, setJoinCode] = useState("");
 
-  const [
-    currentUserId,
-    setCurrentUserId,
-  ] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [joining, setJoining] = useState(false);
 
-  const [
-    roomCode,
-    setRoomCode,
-  ] = useState("");
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
-  const [
-    joinCode,
-    setJoinCode,
-  ] = useState("");
-
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
-
-  const [
-    saving,
-    setSaving,
-  ] = useState(false);
-
-  const [
-    joining,
-    setJoining,
-  ] = useState(false);
-
-  const [
-    realtimeConnected,
-    setRealtimeConnected,
-  ] = useState(false);
-
-  // =====================================
+  // ======================================================
   // HOST / VIEWER
-  // =====================================
+  // ======================================================
 
   const isHost =
     !!currentUserId &&
@@ -164,9 +152,9 @@ export default function Home() {
     !!hostUserId &&
     currentUserId !== hostUserId;
 
-  // =====================================
+  // ======================================================
   // ROOM CODE
-  // =====================================
+  // ======================================================
 
   const generateRoomCode = () => {
     const characters =
@@ -177,113 +165,89 @@ export default function Home() {
     for (let i = 0; i < 6; i++) {
       result +=
         characters[
-          Math.floor(
-            Math.random() *
-              characters.length
-          )
+          Math.floor(Math.random() * characters.length)
         ];
     }
 
     return result;
   };
 
-  // =====================================
-  // CREATE ROOM CODE FOR OLD GAMES
-  // =====================================
+  // ======================================================
+  // CREATE ROOM CODE FOR OLD GAME
+  // ======================================================
 
-  const createRoomCodeForExistingGame =
-    async (
-      existingGameId: string
-    ) => {
-      for (
-        let attempt = 0;
-        attempt < 5;
-        attempt++
-      ) {
-        const newCode =
-          generateRoomCode();
+  const createRoomCodeForExistingGame = useCallback(
+    async (existingGameId: string) => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const newCode = generateRoomCode();
 
-        const {
-          error,
-        } = await supabase
+        const { error } = await supabase
           .from("games")
           .update({
             room_code: newCode,
           })
-          .eq(
-            "id",
-            existingGameId
-          );
+          .eq("id", existingGameId);
 
         if (!error) {
-          setRoomCode(
-            newCode
-          );
-
+          setRoomCode(newCode);
           return;
         }
       }
-    };
 
-  // =====================================
+      console.error("Could not generate room code.");
+    },
+    []
+  );
+
+  // ======================================================
   // LOAD EXISTING GAME
-  // =====================================
+  // ======================================================
 
-  const loadExistingGame =
-    useCallback(
-      async (
-        existingGameId: string,
-        userId?: string
-      ) => {
-        const {
-          data: game,
-          error: gameError,
-        } = await supabase
-          .from("games")
-          .select(
-            `
+  const loadExistingGame = useCallback(
+    async (
+      existingGameId: string,
+      userId?: string
+    ) => {
+      setLoading(true);
+
+      const {
+        data: gameData,
+        error: gameError,
+      } = await supabase
+        .from("games")
+        .select(
+          `
             id,
             user_id,
             buy_in,
             status,
             room_code
-            `
-          )
-          .eq(
-            "id",
-            existingGameId
-          )
-          .single();
+          `
+        )
+        .eq("id", existingGameId)
+        .single();
 
-        if (
-          gameError ||
-          !game
-        ) {
-          console.error(
-            gameError
-          );
+      if (gameError || !gameData) {
+        console.error("Game load error:", gameError);
 
-          alert(
-            "Game could not be found or you do not have access."
-          );
+        alert(
+          "Game could not be found or you do not have access."
+        );
 
-          router.push(
-            "/dashboard"
-          );
+        setLoading(false);
+        router.replace("/dashboard");
+        return;
+      }
 
-          return;
-        }
+      const game = gameData as LoadedGame;
 
-        const typedGame =
-          game as LoadedGame;
-
-        const {
-          data: savedPlayers,
-          error: playerError,
-        } = await supabase
-          .from("players")
-          .select(
-            `
+      const {
+        data: playerData,
+        error: playerError,
+      } = await supabase
+        .from("players")
+        .select(
+          `
             id,
             name,
             rebuys,
@@ -291,229 +255,167 @@ export default function Home() {
             cash_out_entered,
             active,
             created_at
-            `
-          )
-          .eq(
-            "game_id",
-            existingGameId
-          )
-          .order(
-            "created_at",
-            {
-              ascending: true,
-            }
-          );
+          `
+        )
+        .eq("game_id", existingGameId)
+        .order("created_at", {
+          ascending: true,
+        });
 
-        if (playerError) {
-          console.error(
-            playerError
-          );
+      if (playerError) {
+        console.error("Player load error:", playerError);
 
-          alert(
-            "Could not load players."
-          );
-
-          setLoading(false);
-
-          return;
-        }
-
-        const {
-          data: settlementData,
-          error: settlementError,
-        } = await supabase
-          .from("settlements")
-          .select("*")
-          .eq(
-            "game_id",
-            existingGameId
-          )
-          .order(
-            "created_at",
-            {
-              ascending: true,
-            }
-          );
-
-        if (
-          settlementError
-        ) {
-          console.error(
-            "Settlement load error:",
-            settlementError
-          );
-        }
-
-        const loadedPlayers: Player[] =
-          (
-            savedPlayers || []
-          ).map(
-            (
-              player,
-              index
-            ) => ({
-              id:
-                index + 1,
-
-              dbId:
-                player.id,
-
-              name:
-                player.name,
-
-              rebuys:
-                Number(
-                  player.rebuys || 0
-                ),
-
-              cashOut:
-                Number(
-                  player.cash_out || 0
-                ),
-
-              cashOutEntered:
-                Boolean(
-                  player.cash_out_entered
-                ),
-
-              active:
-                player.active,
-            })
-          );
-
-        const loadedSettlements: SavedSettlement[] =
-          (
-            settlementData || []
-          ).map(
-            (item) => ({
-              ...item,
-
-              amount:
-                Number(
-                  item.amount
-                ),
-            })
-          );
-
-        setGameId(
-          typedGame.id
-        );
-
-        setHostUserId(
-          typedGame.user_id
-        );
-
-        setBuyIn(
-          Number(
-            typedGame.buy_in
-          )
-        );
-
-        setRoomCode(
-          typedGame.room_code ||
-            ""
-        );
-
-        setPlayers(
-          loadedPlayers
-        );
-
-        setSavedSettlements(
-          loadedSettlements
-        );
-
-        setNumberOfPlayers(
-          loadedPlayers.length
-        );
-
-        setGameStarted(
-          true
-        );
-
-        setGameFinished(
-          typedGame.status ===
-            "finished"
-        );
-
-        if (
-          !typedGame.room_code &&
-          userId ===
-            typedGame.user_id &&
-          typedGame.status ===
-            "active"
-        ) {
-          await createRoomCodeForExistingGame(
-            typedGame.id
-          );
-        }
+        alert("Could not load players.");
 
         setLoading(false);
-      },
-      [router]
-    );
+        return;
+      }
 
-  // =====================================
-  // INITIAL LOAD
-  // =====================================
+      const {
+        data: settlementData,
+        error: settlementError,
+      } = await supabase
+        .from("settlements")
+        .select("*")
+        .eq("game_id", existingGameId)
+        .order("created_at", {
+          ascending: true,
+        });
+
+      if (settlementError) {
+        console.error(
+          "Settlement load error:",
+          settlementError
+        );
+      }
+
+      const playerRows =
+        (playerData || []) as PlayerRow[];
+
+      const loadedPlayers: Player[] = playerRows.map(
+        (player, index) => ({
+          id: index + 1,
+          dbId: player.id,
+          name: player.name,
+          rebuys: Number(player.rebuys || 0),
+          cashOut: Number(player.cash_out || 0),
+          cashOutEntered: Boolean(
+            player.cash_out_entered
+          ),
+          active: Boolean(player.active),
+        })
+      );
+
+      const settlementRows =
+        (settlementData || []) as SettlementRow[];
+
+      const loadedSettlements: SavedSettlement[] =
+        settlementRows.map((item) => ({
+          id: item.id,
+          game_id: item.game_id,
+          payer_name: item.payer_name,
+          receiver_name: item.receiver_name,
+          amount: Number(item.amount),
+          status: item.status,
+          created_at: item.created_at,
+          paid_at: item.paid_at,
+        }));
+
+      setGameId(game.id);
+      setHostUserId(game.user_id);
+
+      setBuyIn(Number(game.buy_in));
+
+      setRoomCode(game.room_code || "");
+
+      setPlayers(loadedPlayers);
+
+      setSavedSettlements(
+        loadedSettlements
+      );
+
+      setNumberOfPlayers(
+        loadedPlayers.length
+      );
+
+      setGameStarted(true);
+
+      setGameFinished(
+        game.status === "finished"
+      );
+
+      if (
+        !game.room_code &&
+        userId === game.user_id &&
+        game.status === "active"
+      ) {
+        await createRoomCodeForExistingGame(
+          game.id
+        );
+      }
+
+      setLoading(false);
+    },
+    [
+      router,
+      createRoomCodeForExistingGame,
+    ]
+  );
+
+  // ======================================================
+  // INITIAL AUTH + URL LOAD
+  // ======================================================
 
   useEffect(() => {
-    const loadPage =
-      async () => {
-        setLoading(true);
+    const loadPage = async () => {
+      setLoading(true);
 
-        const {
-          data: {
-            user,
-          },
-        } =
-          await supabase.auth.getUser();
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
 
-        if (!user) {
-          router.push(
-            "/login"
-          );
+      if (error) {
+        console.error(
+          "Auth error:",
+          error
+        );
+      }
 
-          return;
-        }
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
 
-        setCurrentUserId(
-          user.id
+      setCurrentUserId(user.id);
+
+      const id =
+        searchParams.get("id");
+
+      const room =
+        searchParams.get("room");
+
+      if (room && !id) {
+        setJoinCode(
+          room
+            .toUpperCase()
+            .trim()
         );
 
-        const id =
-          searchParams.get(
-            "id"
-          );
+        setLoading(false);
+        return;
+      }
 
-        const room =
-          searchParams.get(
-            "room"
-          );
+      if (!id) {
+        setLoading(false);
+        return;
+      }
 
-        if (
-          room &&
-          !id
-        ) {
-          setJoinCode(
-            room.toUpperCase()
-          );
-
-          setLoading(false);
-
-          return;
-        }
-
-        if (!id) {
-          setLoading(false);
-
-          return;
-        }
-
-        await loadExistingGame(
-          id,
-          user.id
-        );
-      };
+      await loadExistingGame(
+        id,
+        user.id
+      );
+    };
 
     loadPage();
   }, [
@@ -522,44 +424,50 @@ export default function Home() {
     loadExistingGame,
   ]);
 
-  // =====================================
+  // ======================================================
   // REALTIME REFRESH
-  // =====================================
+  // ======================================================
 
-  const refreshCurrentGame =
-    useCallback(
-      async () => {
-        if (!gameId)
-          return;
+  const refreshCurrentGame = useCallback(
+    async () => {
+      if (!gameId) return;
 
-        const {
-          data: game,
-        } = await supabase
-          .from("games")
-          .select(
-            `
+      const {
+        data: gameData,
+        error: gameError,
+      } = await supabase
+        .from("games")
+        .select(
+          `
             id,
             user_id,
             buy_in,
             status,
             room_code
-            `
-          )
-          .eq(
-            "id",
-            gameId
-          )
-          .single();
+          `
+        )
+        .eq("id", gameId)
+        .single();
 
-        if (!game)
-          return;
+      if (gameError || !gameData) {
+        console.error(
+          "Realtime game load error:",
+          gameError
+        );
 
-        const {
-          data: savedPlayers,
-        } = await supabase
-          .from("players")
-          .select(
-            `
+        return;
+      }
+
+      const game =
+        gameData as LoadedGame;
+
+      const {
+        data: playerData,
+        error: playerError,
+      } = await supabase
+        .from("players")
+        .select(
+          `
             id,
             name,
             rebuys,
@@ -567,188 +475,183 @@ export default function Home() {
             cash_out_entered,
             active,
             created_at
-            `
-          )
-          .eq(
-            "game_id",
-            gameId
-          )
-          .order(
-            "created_at",
-            {
-              ascending: true,
-            }
-          );
+          `
+        )
+        .eq("game_id", gameId)
+        .order("created_at", {
+          ascending: true,
+        });
 
-        const {
-          data:
-            settlementData,
-        } = await supabase
-          .from(
-            "settlements"
-          )
-          .select("*")
-          .eq(
-            "game_id",
-            gameId
-          )
-          .order(
-            "created_at",
-            {
-              ascending: true,
-            }
-          );
+      if (playerError) {
+        console.error(
+          "Realtime player error:",
+          playerError
+        );
 
-        const loadedPlayers: Player[] =
+        return;
+      }
+
+      const {
+        data: settlementData,
+        error: settlementError,
+      } = await supabase
+        .from("settlements")
+        .select("*")
+        .eq("game_id", gameId)
+        .order("created_at", {
+          ascending: true,
+        });
+
+      if (settlementError) {
+        console.error(
+          "Realtime settlement error:",
+          settlementError
+        );
+      }
+
+      const playerRows =
+        (playerData || []) as PlayerRow[];
+
+      const loadedPlayers: Player[] =
+        playerRows.map(
           (
-            savedPlayers || []
-          ).map(
-            (
-              player,
-              index
-            ) => ({
-              id:
-                index + 1,
-
-              dbId:
-                player.id,
-
-              name:
-                player.name,
-
-              rebuys:
-                Number(
-                  player.rebuys ||
-                    0
-                ),
-
-              cashOut:
-                Number(
-                  player.cash_out ||
-                    0
-                ),
-
-              cashOutEntered:
-                Boolean(
-                  player.cash_out_entered
-                ),
-
-              active:
-                player.active,
-            })
-          );
-
-        const loadedSettlements: SavedSettlement[] =
-          (
-            settlementData ||
-            []
-          ).map(
-            (item) => ({
-              ...item,
-
-              amount:
-                Number(
-                  item.amount
-                ),
-            })
-          );
-
-        setPlayers(
-          loadedPlayers
+            player,
+            index
+          ) => ({
+            id: index + 1,
+            dbId: player.id,
+            name: player.name,
+            rebuys: Number(
+              player.rebuys || 0
+            ),
+            cashOut: Number(
+              player.cash_out || 0
+            ),
+            cashOutEntered:
+              Boolean(
+                player.cash_out_entered
+              ),
+            active: Boolean(
+              player.active
+            ),
+          })
         );
 
-        setSavedSettlements(
-          loadedSettlements
+      const settlementRows =
+        (settlementData || []) as SettlementRow[];
+
+      const loadedSettlements: SavedSettlement[] =
+        settlementRows.map(
+          (item) => ({
+            id: item.id,
+            game_id: item.game_id,
+            payer_name:
+              item.payer_name,
+            receiver_name:
+              item.receiver_name,
+            amount: Number(
+              item.amount
+            ),
+            status: item.status,
+            created_at:
+              item.created_at,
+            paid_at: item.paid_at,
+          })
         );
 
-        setBuyIn(
-          Number(
-            game.buy_in
-          )
-        );
+      setPlayers(
+        loadedPlayers
+      );
 
-        setRoomCode(
-          game.room_code ||
-            ""
-        );
+      setSavedSettlements(
+        loadedSettlements
+      );
 
-        setHostUserId(
-          game.user_id
-        );
+      setBuyIn(
+        Number(game.buy_in)
+      );
 
-        setGameFinished(
-          game.status ===
-            "finished"
-        );
+      setRoomCode(
+        game.room_code || ""
+      );
 
-        setGameStarted(
-          true
-        );
-      },
-      [gameId]
-    );
+      setHostUserId(
+        game.user_id
+      );
 
-  // =====================================
+      setGameFinished(
+        game.status === "finished"
+      );
+
+      setGameStarted(true);
+    },
+    [gameId]
+  );
+
+  // ======================================================
   // REALTIME SUBSCRIPTION
-  // =====================================
+  // ======================================================
 
   useEffect(() => {
-    if (!gameId)
-      return;
+    if (!gameId) return;
 
     const channel =
       supabase
         .channel(
-          `poker-${gameId}`
+          `poker-game-${gameId}`
         )
 
         .on(
           "postgres_changes",
           {
             event: "*",
-            schema:
-              "public",
-            table:
-              "players",
+            schema: "public",
+            table: "players",
             filter: `game_id=eq.${gameId}`,
           },
-          refreshCurrentGame
+          () => {
+            refreshCurrentGame();
+          }
         )
 
         .on(
           "postgres_changes",
           {
             event: "*",
-            schema:
-              "public",
-            table:
-              "games",
+            schema: "public",
+            table: "games",
             filter: `id=eq.${gameId}`,
           },
-          refreshCurrentGame
+          () => {
+            refreshCurrentGame();
+          }
         )
 
         .on(
           "postgres_changes",
           {
             event: "*",
-            schema:
-              "public",
+            schema: "public",
             table:
               "settlements",
             filter: `game_id=eq.${gameId}`,
           },
-          refreshCurrentGame
+          () => {
+            refreshCurrentGame();
+          }
         )
 
-        .subscribe(
-          (status) => {
-            setRealtimeConnected(
-              status ===
-                "SUBSCRIBED"
-            );
-          }
-        );
+        .subscribe((status) => {
+  if (status === "SUBSCRIBED") {
+    setRealtimeConnected(true);
+  } else if (
+    status === "CHANNEL_ERROR" ||
+    status === "TIMED_OUT" ||
+    status === "CLOSED"
+  ) {
+    setRealtimeConnected(false);
+  }
+});
 
     return () => {
       setRealtimeConnected(
@@ -764,138 +667,135 @@ export default function Home() {
     refreshCurrentGame,
   ]);
 
-  // =====================================
+  // ======================================================
   // JOIN GAME
-  // =====================================
+  // ======================================================
 
-  const joinGame =
-    async () => {
-      if (joining)
-        return;
+  const joinGame = async () => {
+    if (joining) return;
 
-      const cleanedCode =
-        joinCode
-          .trim()
-          .toUpperCase();
+    const cleanedCode =
+      joinCode
+        .trim()
+        .toUpperCase();
 
-      if (
-        cleanedCode.length !==
-        6
-      ) {
-        alert(
-          "Enter the 6-character room code."
-        );
+    if (
+      cleanedCode.length !==
+      6
+    ) {
+      alert(
+        "Enter the 6-character room code."
+      );
 
-        return;
+      return;
+    }
+
+    setJoining(true);
+
+    const {
+      data,
+      error,
+    } = await supabase.rpc(
+      "join_game_by_code",
+      {
+        input_room_code:
+          cleanedCode,
       }
+    );
 
-      setJoining(true);
+    if (
+      error ||
+      !data
+    ) {
+      console.error(
+        "Join error:",
+        error
+      );
 
-      const {
-        data,
-        error,
-      } =
-        await supabase.rpc(
-          "join_game_by_code",
-          {
-            input_room_code:
-              cleanedCode,
-          }
-        );
-
-      if (
-        error ||
-        !data
-      ) {
-        console.error(
-          error
-        );
-
-        alert(
-          "Room not found or this game is no longer active."
-        );
-
-        setJoining(false);
-
-        return;
-      }
+      alert(
+        "Room not found or this game is no longer active."
+      );
 
       setJoining(false);
+      return;
+    }
 
-      router.replace(
-        `/?id=${data}`
+    setJoining(false);
+
+    router.replace(
+      `/?id=${data}`
+    );
+  };
+
+  // ======================================================
+  // CREATE LOCAL PLAYERS
+  // ======================================================
+
+  const createPlayers = () => {
+    if (
+      !Number.isInteger(
+        numberOfPlayers
+      ) ||
+      numberOfPlayers < 2 ||
+      numberOfPlayers > 30
+    ) {
+      alert(
+        "Enter between 2 and 30 players."
       );
-    };
 
-  // =====================================
-  // CREATE PLAYER INPUTS
-  // =====================================
+      return;
+    }
 
-  const createPlayers =
-    () => {
-      if (
-        !Number.isInteger(
-          numberOfPlayers
-        ) ||
-        numberOfPlayers <
-          2 ||
-        numberOfPlayers >
-          30
-      ) {
-        alert(
-          "Enter between 2 and 30 players."
-        );
-
-        return;
-      }
-
-      if (
-        !Number.isFinite(
-          buyIn
-        ) ||
-        buyIn <= 0
-      ) {
-        alert(
-          "Enter a valid buy-in."
-        );
-
-        return;
-      }
-
-      const newPlayers =
-        Array.from(
-          {
-            length:
-              numberOfPlayers,
-          },
-          (
-            _,
-            index
-          ): Player => ({
-            id:
-              index + 1,
-
-            name: "",
-
-            rebuys: 0,
-
-            cashOut: 0,
-
-            cashOutEntered:
-              false,
-
-            active: true,
-          })
-        );
-
-      setPlayers(
-        newPlayers
+    if (
+      !Number.isFinite(
+        buyIn
+      ) ||
+      buyIn <= 0
+    ) {
+      alert(
+        "Enter a valid buy-in."
       );
-    };
 
-  // =====================================
+      return;
+    }
+
+    const cleanBuyIn =
+      toRupees(
+        toPaise(buyIn)
+      );
+
+    setBuyIn(
+      cleanBuyIn
+    );
+
+    const newPlayers: Player[] =
+      Array.from(
+        {
+          length:
+            numberOfPlayers,
+        },
+        (
+          _,
+          index
+        ) => ({
+          id: index + 1,
+          name: "",
+          rebuys: 0,
+          cashOut: 0,
+          cashOutEntered:
+            false,
+          active: true,
+        })
+      );
+
+    setPlayers(
+      newPlayers
+    );
+  };
+
+  // ======================================================
   // PLAYER NAME
-  // =====================================
+  // ======================================================
 
   const updateName = (
     id: number,
@@ -904,19 +804,15 @@ export default function Home() {
     if (
       gameStarted &&
       !isHost
-    )
+    ) {
       return;
+    }
 
     setPlayers(
-      (
-        previous
-      ) =>
+      (previous) =>
         previous.map(
-          (
-            player
-          ) =>
-            player.id ===
-            id
+          (player) =>
+            player.id === id
               ? {
                   ...player,
                   name,
@@ -926,248 +822,256 @@ export default function Home() {
     );
   };
 
-  // =====================================
+  // ======================================================
   // START GAME
-  // =====================================
+  // ======================================================
 
-  const startGame =
-    async () => {
-      if (saving)
-        return;
+  const startGame = async () => {
+    if (saving) return;
 
-      if (
-        players.some(
-          (
-            player
-          ) =>
-            !player.name.trim()
-        )
-      ) {
-        alert(
-          "Enter every player's name."
-        );
+    if (
+      players.length < 2
+    ) {
+      alert(
+        "Create at least 2 players."
+      );
 
-        return;
-      }
+      return;
+    }
 
-      const normalizedNames =
-        players.map(
-          (
-            player
-          ) =>
-            player.name
-              .trim()
-              .toLowerCase()
-        );
+    if (
+      players.some(
+        (player) =>
+          !player.name.trim()
+      )
+    ) {
+      alert(
+        "Enter every player's name."
+      );
 
-      if (
-        new Set(
-          normalizedNames
-        ).size !==
-        normalizedNames.length
-      ) {
-        alert(
-          "Player names must be unique."
-        );
+      return;
+    }
 
-        return;
-      }
+    const normalizedNames =
+      players.map(
+        (player) =>
+          player.name
+            .trim()
+            .toLowerCase()
+      );
 
-      setSaving(true);
+    if (
+      new Set(
+        normalizedNames
+      ).size !==
+      normalizedNames.length
+    ) {
+      alert(
+        "Player names must be unique."
+      );
 
+      return;
+    }
+
+    setSaving(true);
+
+    const {
+      data: {
+        user,
+      },
+    } =
+      await supabase.auth.getUser();
+
+    if (!user) {
+      setSaving(false);
+
+      router.replace(
+        "/login"
+      );
+
+      return;
+    }
+
+    let createdGame:
+      | LoadedGame
+      | null = null;
+
+    let generatedCode =
+      generateRoomCode();
+
+    for (
+      let attempt = 0;
+      attempt < 5;
+      attempt++
+    ) {
       const {
-        data: {
-          user,
-        },
-      } =
-        await supabase.auth.getUser();
-
-      if (!user) {
-        setSaving(false);
-
-        router.push(
-          "/login"
-        );
-
-        return;
-      }
-
-      let createdGame:
-        | LoadedGame
-        | null = null;
-
-      let generatedCode =
-        generateRoomCode();
-
-      for (
-        let attempt = 0;
-        attempt < 5;
-        attempt++
-      ) {
-        const {
-          data,
-          error,
-        } = await supabase
-          .from("games")
-          .insert({
-            user_id:
-              user.id,
-
-            buy_in:
-              buyIn,
-
-            status:
-              "active",
-
-            room_code:
-              generatedCode,
-          })
-          .select(
-            `
+        data,
+        error,
+      } = await supabase
+        .from("games")
+        .insert({
+          user_id: user.id,
+          buy_in:
+            toRupees(
+              toPaise(buyIn)
+            ),
+          status:
+            "active",
+          room_code:
+            generatedCode,
+        })
+        .select(
+          `
             id,
             user_id,
             buy_in,
             status,
             room_code
-            `
-          )
-          .single();
-
-        if (
-          !error &&
-          data
-        ) {
-          createdGame =
-            data as LoadedGame;
-
-          break;
-        }
-
-        generatedCode =
-          generateRoomCode();
-      }
+          `
+        )
+        .single();
 
       if (
-        !createdGame
+        !error &&
+        data
       ) {
-        alert(
-          "Could not create game."
-        );
+        createdGame =
+          data as LoadedGame;
 
-        setSaving(false);
-
-        return;
+        break;
       }
 
-      const {
-        data:
-          createdPlayers,
-        error:
-          playersError,
-      } = await supabase
-        .from("players")
-        .insert(
-          players.map(
-            (
-              player
-            ) => ({
-              game_id:
-                createdGame!.id,
+      generatedCode =
+        generateRoomCode();
+    }
 
-              name:
-                player.name.trim(),
-
-              rebuys: 0,
-
-              cash_out: 0,
-
-              cash_out_entered:
-                false,
-
-              active: true,
-            })
-          )
-        )
-        .select();
-
-      if (
-        playersError
-      ) {
-        console.error(
-          playersError
-        );
-
-        await supabase
-          .from("games")
-          .delete()
-          .eq(
-            "id",
-            createdGame.id
-          );
-
-        alert(
-          "Could not create players."
-        );
-
-        setSaving(false);
-
-        return;
-      }
-
-      setPlayers(
-        players.map(
-          (
-            player,
-            index
-          ) => ({
-            ...player,
-
-            dbId:
-              createdPlayers?.[
-                index
-              ]?.id,
-          })
-        )
-      );
-
-      setGameId(
-        createdGame.id
-      );
-
-      setHostUserId(
-        user.id
-      );
-
-      setCurrentUserId(
-        user.id
-      );
-
-      setRoomCode(
-        generatedCode
-      );
-
-      setSavedSettlements(
-        []
-      );
-
-      setGameStarted(
-        true
-      );
-
-      setGameFinished(
-        false
+    if (
+      !createdGame
+    ) {
+      alert(
+        "Could not create game."
       );
 
       setSaving(false);
+      return;
+    }
 
-      router.replace(
-        `/?id=${createdGame.id}`
+    const {
+      data: createdPlayersData,
+      error: playersError,
+    } = await supabase
+      .from("players")
+      .insert(
+        players.map(
+          (player) => ({
+            game_id:
+              createdGame!.id,
+
+            name:
+              player.name.trim(),
+
+            rebuys: 0,
+
+            cash_out: 0,
+
+            cash_out_entered:
+              false,
+
+            active: true,
+          })
+        )
+      )
+      .select(
+        `
+          id,
+          name,
+          rebuys,
+          cash_out,
+          cash_out_entered,
+          active,
+          created_at
+        `
       );
-    };
 
-  // =====================================
+    if (
+      playersError
+    ) {
+      console.error(
+        "Create players error:",
+        playersError
+      );
+
+      await supabase
+        .from("games")
+        .delete()
+        .eq(
+          "id",
+          createdGame.id
+        );
+
+      alert(
+        "Could not create players."
+      );
+
+      setSaving(false);
+      return;
+    }
+
+    const createdRows =
+      (createdPlayersData ||
+        []) as PlayerRow[];
+
+    const localPlayers =
+      players.map(
+        (
+          player,
+          index
+        ) => ({
+          ...player,
+          dbId:
+            createdRows[
+              index
+            ]?.id,
+        })
+      );
+
+    setPlayers(
+      localPlayers
+    );
+
+    setGameId(
+      createdGame.id
+    );
+
+    setHostUserId(
+      user.id
+    );
+
+    setCurrentUserId(
+      user.id
+    );
+
+    setRoomCode(
+      generatedCode
+    );
+
+    setSavedSettlements(
+      []
+    );
+
+    setGameStarted(true);
+    setGameFinished(false);
+
+    setSaving(false);
+
+    router.replace(
+      `/?id=${createdGame.id}`
+    );
+  };
+
+  // ======================================================
   // SAVE PLAYER NAME
-  // =====================================
+  // ======================================================
 
   const savePlayerName =
     async (
@@ -1175,39 +1079,61 @@ export default function Home() {
     ) => {
       if (
         !isHost ||
-        !player.dbId
-      )
+        !player.dbId ||
+        gameFinished
+      ) {
         return;
+      }
 
       const name =
         player.name.trim();
 
-      if (!name)
-        return;
+      if (!name) return;
 
-      const {
-        error,
-      } = await supabase
-        .from("players")
-        .update({
-          name,
-        })
-        .eq(
-          "id",
-          player.dbId
+      const duplicate =
+        players.some(
+          (other) =>
+            other.id !==
+              player.id &&
+            other.name
+              .trim()
+              .toLowerCase() ===
+              name.toLowerCase()
         );
+
+      if (duplicate) {
+        alert(
+          "Player names must be unique."
+        );
+
+        await refreshCurrentGame();
+        return;
+      }
+
+      const { error } =
+        await supabase
+          .from("players")
+          .update({
+            name,
+          })
+          .eq(
+            "id",
+            player.dbId
+          );
 
       if (error) {
         console.error(
           "Name save error:",
           error
         );
+
+        await refreshCurrentGame();
       }
     };
 
-  // =====================================
-  // ADD PLAYER MID-GAME
-  // =====================================
+  // ======================================================
+  // ADD PLAYER
+  // ======================================================
 
   const addPlayerMidGame =
     async () => {
@@ -1215,24 +1141,39 @@ export default function Home() {
         !isHost ||
         !gameId ||
         gameFinished
-      )
+      ) {
         return;
+      }
 
       const nextId =
-        players.length ===
-        0
+        players.length === 0
           ? 1
           : Math.max(
               ...players.map(
-                (
-                  player
-                ) =>
+                (player) =>
                   player.id
               )
             ) + 1;
 
-      const name =
+      let name =
         `Player ${nextId}`;
+
+      let suffix =
+        nextId;
+
+      while (
+        players.some(
+          (player) =>
+            player.name
+              .trim()
+              .toLowerCase() ===
+            name.toLowerCase()
+        )
+      ) {
+        suffix += 1;
+        name =
+          `Player ${suffix}`;
+      }
 
       const {
         data,
@@ -1240,21 +1181,25 @@ export default function Home() {
       } = await supabase
         .from("players")
         .insert({
-          game_id:
-            gameId,
-
+          game_id: gameId,
           name,
-
           rebuys: 0,
-
           cash_out: 0,
-
           cash_out_entered:
             false,
-
           active: true,
         })
-        .select()
+        .select(
+          `
+            id,
+            name,
+            rebuys,
+            cash_out,
+            cash_out_entered,
+            active,
+            created_at
+          `
+        )
         .single();
 
       if (
@@ -1262,6 +1207,7 @@ export default function Home() {
         !data
       ) {
         console.error(
+          "Add player error:",
           error
         );
 
@@ -1272,97 +1218,89 @@ export default function Home() {
         return;
       }
 
+      const row =
+        data as PlayerRow;
+
       setPlayers(
-        (
-          previous
-        ) => [
+        (previous) => [
           ...previous,
-
           {
-            id:
-              nextId,
-
-            dbId:
-              data.id,
-
-            name,
-
-            rebuys: 0,
-
-            cashOut: 0,
-
+            id: nextId,
+            dbId: row.id,
+            name: row.name,
+            rebuys: Number(
+              row.rebuys
+            ),
+            cashOut: Number(
+              row.cash_out
+            ),
             cashOutEntered:
-              false,
-
-            active: true,
+              Boolean(
+                row.cash_out_entered
+              ),
+            active:
+              Boolean(
+                row.active
+              ),
           },
         ]
       );
     };
 
-  // =====================================
-  // REBUYS
-  // =====================================
+  // ======================================================
+  // REBUY
+  // ======================================================
 
-  const changeRebuy =
-    async (
-      id: number,
-      change: number
-    ) => {
-      if (
-        !isHost ||
-        gameFinished
-      )
-        return;
+  const changeRebuy = async (
+    id: number,
+    change: number
+  ) => {
+    if (
+      !isHost ||
+      gameFinished
+    ) {
+      return;
+    }
 
-      const player =
-        players.find(
-          (
-            item
-          ) =>
-            item.id ===
-            id
-        );
-
-      if (
-        !player ||
-        !player.active
-      )
-        return;
-
-      const newValue =
-        Math.max(
-          0,
-          player.rebuys +
-            change
-        );
-
-      setPlayers(
-        (
-          previous
-        ) =>
-          previous.map(
-            (
-              item
-            ) =>
-              item.id ===
-              id
-                ? {
-                    ...item,
-
-                    rebuys:
-                      newValue,
-                  }
-                : item
-          )
+    const player =
+      players.find(
+        (item) =>
+          item.id === id
       );
 
-      if (
-        player.dbId
-      ) {
-        const {
-          error,
-        } = await supabase
+    if (
+      !player ||
+      !player.active
+    ) {
+      return;
+    }
+
+    const newValue =
+      Math.max(
+        0,
+        player.rebuys +
+          change
+      );
+
+    setPlayers(
+      (previous) =>
+        previous.map(
+          (item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  rebuys:
+                    newValue,
+                }
+              : item
+        )
+    );
+
+    if (
+      player.dbId
+    ) {
+      const { error } =
+        await supabase
           .from("players")
           .update({
             rebuys:
@@ -1373,18 +1311,20 @@ export default function Home() {
             player.dbId
           );
 
-        if (error) {
-          console.error(
-            "Rebuy save error:",
-            error
-          );
-        }
-      }
-    };
+      if (error) {
+        console.error(
+          "Rebuy error:",
+          error
+        );
 
-  // =====================================
+        await refreshCurrentGame();
+      }
+    }
+  };
+
+  // ======================================================
   // CASH OUT
-  // =====================================
+  // ======================================================
 
   const updateCashOut = (
     id: number,
@@ -1393,16 +1333,18 @@ export default function Home() {
     if (
       !isHost ||
       gameFinished
-    )
+    ) {
       return;
+    }
 
     if (
       !Number.isFinite(
         value
       ) ||
       value < 0
-    )
+    ) {
       return;
+    }
 
     const safeValue =
       toRupees(
@@ -1410,21 +1352,14 @@ export default function Home() {
       );
 
     setPlayers(
-      (
-        previous
-      ) =>
+      (previous) =>
         previous.map(
-          (
-            player
-          ) =>
-            player.id ===
-            id
+          (player) =>
+            player.id === id
               ? {
                   ...player,
-
                   cashOut:
                     safeValue,
-
                   cashOutEntered:
                     true,
                 }
@@ -1439,24 +1374,18 @@ export default function Home() {
     if (
       !isHost ||
       gameFinished
-    )
+    ) {
       return;
+    }
 
     setPlayers(
-      (
-        previous
-      ) =>
+      (previous) =>
         previous.map(
-          (
-            player
-          ) =>
-            player.id ===
-            id
+          (player) =>
+            player.id === id
               ? {
                   ...player,
-
                   cashOut: 0,
-
                   cashOutEntered:
                     false,
                 }
@@ -1471,39 +1400,42 @@ export default function Home() {
     ) => {
       if (
         !isHost ||
-        !player.dbId
-      )
+        !player.dbId ||
+        gameFinished
+      ) {
         return;
+      }
 
-      const {
-        error,
-      } = await supabase
-        .from("players")
-        .update({
-          cash_out:
-            player.cashOutEntered
-              ? player.cashOut
-              : 0,
+      const { error } =
+        await supabase
+          .from("players")
+          .update({
+            cash_out:
+              player.cashOutEntered
+                ? player.cashOut
+                : 0,
 
-          cash_out_entered:
-            player.cashOutEntered,
-        })
-        .eq(
-          "id",
-          player.dbId
-        );
+            cash_out_entered:
+              player.cashOutEntered,
+          })
+          .eq(
+            "id",
+            player.dbId
+          );
 
       if (error) {
         console.error(
           "Cash-out save error:",
           error
         );
+
+        await refreshCurrentGame();
       }
     };
 
-  // =====================================
+  // ======================================================
   // PLAYER LEFT
-  // =====================================
+  // ======================================================
 
   const markPlayerLeft =
     async (
@@ -1512,60 +1444,46 @@ export default function Home() {
       if (
         !isHost ||
         gameFinished
-      )
+      ) {
         return;
+      }
 
       const player =
         players.find(
-          (
-            item
-          ) =>
-            item.id ===
-            id
+          (item) =>
+            item.id === id
         );
 
-      if (!player)
-        return;
+      if (!player) return;
 
       if (
         !player.cashOutEntered
       ) {
         alert(
-          `Enter ${player.name}'s cash-out before marking them as left. ₹0 is allowed.`
+          `Enter ${player.name}'s cash-out first. ₹0 is allowed.`
         );
 
         return;
       }
 
-      const confirmLeave =
+      const confirmed =
         window.confirm(
-          `${player.name} is leaving with ₹${player.cashOut.toLocaleString(
-            "en-IN",
-            {
-              minimumFractionDigits:
-                0,
-              maximumFractionDigits:
-                2,
-            }
+          `${player.name} is leaving with ${formatMoney(
+            player.cashOut
           )}. Confirm?`
         );
 
-      if (!confirmLeave)
+      if (!confirmed) {
         return;
+      }
 
       setPlayers(
-        (
-          previous
-        ) =>
+        (previous) =>
           previous.map(
-            (
-              item
-            ) =>
-              item.id ===
-              id
+            (item) =>
+              item.id === id
                 ? {
                     ...item,
-
                     active:
                       false,
                   }
@@ -1576,37 +1494,37 @@ export default function Home() {
       if (
         player.dbId
       ) {
-        const {
-          error,
-        } = await supabase
-          .from("players")
-          .update({
-            active:
-              false,
+        const { error } =
+          await supabase
+            .from("players")
+            .update({
+              active: false,
 
-            cash_out:
-              player.cashOut,
+              cash_out:
+                player.cashOut,
 
-            cash_out_entered:
-              true,
-          })
-          .eq(
-            "id",
-            player.dbId
-          );
+              cash_out_entered:
+                true,
+            })
+            .eq(
+              "id",
+              player.dbId
+            );
 
         if (error) {
           console.error(
-            "Player leave save error:",
+            "Leave player error:",
             error
           );
+
+          await refreshCurrentGame();
         }
       }
     };
 
-  // =====================================
+  // ======================================================
   // REOPEN PLAYER
-  // =====================================
+  // ======================================================
 
   const reopenPlayer =
     async (
@@ -1615,46 +1533,38 @@ export default function Home() {
       if (
         !isHost ||
         gameFinished
-      )
+      ) {
         return;
+      }
 
       const player =
         players.find(
-          (
-            item
-          ) =>
-            item.id ===
-            id
+          (item) =>
+            item.id === id
         );
 
-      if (!player)
+      if (
+        !player ||
+        !player.dbId
+      ) {
         return;
+      }
 
       setPlayers(
-        (
-          previous
-        ) =>
+        (previous) =>
           previous.map(
-            (
-              item
-            ) =>
-              item.id ===
-              id
+            (item) =>
+              item.id === id
                 ? {
                     ...item,
-                    active:
-                      true,
+                    active: true,
                   }
                 : item
           )
       );
 
-      if (
-        player.dbId
-      ) {
-        const {
-          error,
-        } = await supabase
+      const { error } =
+        await supabase
           .from("players")
           .update({
             active: true,
@@ -1664,18 +1574,19 @@ export default function Home() {
             player.dbId
           );
 
-        if (error) {
-          console.error(
-            "Reopen player error:",
-            error
-          );
-        }
+      if (error) {
+        console.error(
+          "Reopen error:",
+          error
+        );
+
+        await refreshCurrentGame();
       }
     };
 
-  // =====================================
-  // PAISE-SAFE MONEY CALCULATIONS
-  // =====================================
+  // ======================================================
+  // PAISE SAFE CALCULATIONS
+  // ======================================================
 
   const buyInPaise =
     toPaise(buyIn);
@@ -1687,14 +1598,11 @@ export default function Home() {
           total,
           player
         ) => {
-          const invested =
-            buyInPaise *
-            (1 +
-              player.rebuys);
-
           return (
             total +
-            invested
+            buyInPaise *
+              (1 +
+                player.rebuys)
           );
         },
         0
@@ -1735,9 +1643,7 @@ export default function Home() {
   const rawBalances =
     useMemo(() => {
       return players.map(
-        (
-          player
-        ) => {
+        (player) => {
           const investedPaise =
             buyInPaise *
             (1 +
@@ -1756,9 +1662,7 @@ export default function Home() {
             ...player,
 
             investedPaise,
-
             cashOutPaise,
-
             rawProfitPaise,
 
             invested:
@@ -1778,10 +1682,6 @@ export default function Home() {
       buyInPaise,
     ]);
 
-  // =====================================
-  // DIFFERENCE
-  // =====================================
-
   const differencePaise =
     totalCashOutPaise -
     totalInvestedPaise;
@@ -1791,27 +1691,14 @@ export default function Home() {
       differencePaise
     );
 
-  // =====================================
-  // EXACT EQUAL ADJUSTMENT
-  // =====================================
-  //
-  // Example:
-  // Missing ₹1 among 3 players:
-  //
-  // +₹0.34
-  // +₹0.33
-  // +₹0.33
-  //
-  // Total = exactly ₹1
-  //
-  // No floating point imbalance.
-  // =====================================
+  // ======================================================
+  // EQUAL ADJUSTMENT
+  // ======================================================
 
   const adjustedBalances =
     useMemo(() => {
       if (
-        players.length ===
-        0
+        players.length === 0
       ) {
         return [];
       }
@@ -1831,30 +1718,19 @@ export default function Home() {
           players.length;
 
       return rawBalances.map(
-        (
-          player
-        ) => {
-          let extraPaise =
-            0;
+        (player) => {
+          let extraPaise = 0;
 
           if (
-            remainingPaise >
-            0
+            remainingPaise > 0
           ) {
-            extraPaise =
-              1;
-
-            remainingPaise -=
-              1;
+            extraPaise = 1;
+            remainingPaise -= 1;
           } else if (
-            remainingPaise <
-            0
+            remainingPaise < 0
           ) {
-            extraPaise =
-              -1;
-
-            remainingPaise +=
-              1;
+            extraPaise = -1;
+            remainingPaise += 1;
           }
 
           const adjustmentPaise =
@@ -1890,25 +1766,6 @@ export default function Home() {
       rawBalances,
     ]);
 
-  // =====================================
-  // DISPLAY ADJUSTMENT VALUE
-  // =====================================
-
-  const adjustmentPerPlayer =
-    players.length ===
-    0
-      ? 0
-      : toRupees(
-          Math.round(
-            -differencePaise /
-              players.length
-          )
-        );
-
-  // =====================================
-  // FINAL BALANCE
-  // =====================================
-
   const finalBalancePaise =
     adjustedBalances.reduce(
       (
@@ -1925,41 +1782,29 @@ export default function Home() {
       finalBalancePaise
     );
 
-  // =====================================
-  // ACTIVE PLAYERS
-  // =====================================
-
   const activePlayersCount =
-    useMemo(
-      () =>
-        players.filter(
-          (
-            player
-          ) =>
-            player.active
-        ).length,
-      [players]
-    );
+    useMemo(() => {
+      return players.filter(
+        (player) =>
+          player.active
+      ).length;
+    }, [players]);
 
-  // =====================================
-  // SETTLEMENT CALCULATION
-  // =====================================
+  // ======================================================
+  // CALCULATED SETTLEMENTS
+  // ======================================================
 
   const calculatedSettlements =
     useMemo(() => {
       const creditors =
         adjustedBalances
           .filter(
-            (
-              player
-            ) =>
+            (player) =>
               player.adjustedProfitPaise >
               0
           )
           .map(
-            (
-              player
-            ) => ({
+            (player) => ({
               name:
                 player.name,
 
@@ -1968,10 +1813,7 @@ export default function Home() {
             })
           )
           .sort(
-            (
-              a,
-              b
-            ) =>
+            (a, b) =>
               b.balancePaise -
               a.balancePaise
           );
@@ -1979,16 +1821,12 @@ export default function Home() {
       const debtors =
         adjustedBalances
           .filter(
-            (
-              player
-            ) =>
+            (player) =>
               player.adjustedProfitPaise <
               0
           )
           .map(
-            (
-              player
-            ) => ({
+            (player) => ({
               name:
                 player.name,
 
@@ -1999,10 +1837,7 @@ export default function Home() {
             })
           )
           .sort(
-            (
-              a,
-              b
-            ) =>
+            (a, b) =>
               b.balancePaise -
               a.balancePaise
           );
@@ -2010,11 +1845,8 @@ export default function Home() {
       const result: Settlement[] =
         [];
 
-      let creditorIndex =
-        0;
-
-      let debtorIndex =
-        0;
+      let creditorIndex = 0;
+      let debtorIndex = 0;
 
       while (
         creditorIndex <
@@ -2039,8 +1871,7 @@ export default function Home() {
           );
 
         if (
-          amountPaise >
-          0
+          amountPaise > 0
         ) {
           result.push({
             from:
@@ -2066,14 +1897,14 @@ export default function Home() {
           creditor.balancePaise ===
           0
         ) {
-          creditorIndex++;
+          creditorIndex += 1;
         }
 
         if (
           debtor.balancePaise ===
           0
         ) {
-          debtorIndex++;
+          debtorIndex += 1;
         }
       }
 
@@ -2082,9 +1913,9 @@ export default function Home() {
       adjustedBalances,
     ]);
 
-  // =====================================
+  // ======================================================
   // FINISH GAME
-  // =====================================
+  // ======================================================
 
   const finishGame =
     async () => {
@@ -2092,14 +1923,13 @@ export default function Home() {
         !isHost ||
         !gameId ||
         saving
-      )
+      ) {
         return;
+      }
 
       const missingCashOut =
         players.filter(
-          (
-            player
-          ) =>
+          (player) =>
             player.active &&
             !player.cashOutEntered
         );
@@ -2111,9 +1941,7 @@ export default function Home() {
         alert(
           `Enter final cash-out for: ${missingCashOut
             .map(
-              (
-                player
-              ) =>
+              (player) =>
                 player.name
             )
             .join(
@@ -2126,16 +1954,13 @@ export default function Home() {
 
       setSaving(true);
 
-      // SAVE PLAYERS
-
       for (
         const player of
         players
       ) {
-        if (
-          !player.dbId
-        )
+        if (!player.dbId) {
           continue;
+        }
 
         const {
           error,
@@ -2164,6 +1989,7 @@ export default function Home() {
 
         if (error) {
           console.error(
+            "Final player save error:",
             error
           );
 
@@ -2172,20 +1998,15 @@ export default function Home() {
           );
 
           setSaving(false);
-
           return;
         }
       }
 
-      // DELETE OLD SETTLEMENTS
-
       const {
         error:
-          deleteError,
+          deleteSettlementError,
       } = await supabase
-        .from(
-          "settlements"
-        )
+        .from("settlements")
         .delete()
         .eq(
           "game_id",
@@ -2193,22 +2014,20 @@ export default function Home() {
         );
 
       if (
-        deleteError
+        deleteSettlementError
       ) {
         console.error(
-          deleteError
+          "Settlement delete error:",
+          deleteSettlementError
         );
 
         alert(
-          "Could not recalculate settlements."
+          "Could not recalculate settlement."
         );
 
         setSaving(false);
-
         return;
       }
-
-      // SAVE NEW SETTLEMENTS
 
       if (
         calculatedSettlements.length >
@@ -2223,9 +2042,7 @@ export default function Home() {
           )
           .insert(
             calculatedSettlements.map(
-              (
-                settlement
-              ) => ({
+              (settlement) => ({
                 game_id:
                   gameId,
 
@@ -2247,6 +2064,7 @@ export default function Home() {
 
         if (error) {
           console.error(
+            "Settlement save error:",
             error
           );
 
@@ -2255,23 +2073,33 @@ export default function Home() {
           );
 
           setSaving(false);
-
           return;
         }
 
-        setSavedSettlements(
-          (
-            data || []
-          ).map(
-            (
-              item
-            ) => ({
-              ...item,
+        const rows =
+          (data ||
+            []) as SettlementRow[];
 
+        setSavedSettlements(
+          rows.map(
+            (item) => ({
+              id: item.id,
+              game_id:
+                item.game_id,
+              payer_name:
+                item.payer_name,
+              receiver_name:
+                item.receiver_name,
               amount:
                 Number(
                   item.amount
                 ),
+              status:
+                item.status,
+              created_at:
+                item.created_at,
+              paid_at:
+                item.paid_at,
             })
           )
         );
@@ -2280,8 +2108,6 @@ export default function Home() {
           []
         );
       }
-
-      // FINISH GAME
 
       const {
         error:
@@ -2300,10 +2126,9 @@ export default function Home() {
           gameId
         );
 
-      if (
-        gameError
-      ) {
+      if (gameError) {
         console.error(
+          "Finish game error:",
           gameError
         );
 
@@ -2312,7 +2137,6 @@ export default function Home() {
         );
 
         setSaving(false);
-
         return;
       }
 
@@ -2323,9 +2147,9 @@ export default function Home() {
       setSaving(false);
     };
 
-  // =====================================
-  // SETTLEMENT PAYMENT STATUS
-  // =====================================
+  // ======================================================
+  // PAYMENT STATUS
+  // ======================================================
 
   const setSettlementStatus =
     async (
@@ -2335,38 +2159,14 @@ export default function Home() {
         | "pending"
         | "paid"
     ) => {
-      if (
-        !isHost ||
-        saving
-      )
+      if (!isHost) {
         return;
+      }
 
       const paidAt =
         status === "paid"
           ? new Date().toISOString()
           : null;
-
-      setSavedSettlements(
-        (
-          previous
-        ) =>
-          previous.map(
-            (
-              item
-            ) =>
-              item.id ===
-              settlement.id
-                ? {
-                    ...item,
-
-                    status,
-
-                    paid_at:
-                      paidAt,
-                  }
-                : item
-          )
-      );
 
       const {
         error,
@@ -2376,7 +2176,6 @@ export default function Home() {
         )
         .update({
           status,
-
           paid_at:
             paidAt,
         })
@@ -2387,6 +2186,7 @@ export default function Home() {
 
       if (error) {
         console.error(
+          "Payment update error:",
           error
         );
 
@@ -2394,19 +2194,33 @@ export default function Home() {
           "Could not update payment."
         );
 
-        await refreshCurrentGame();
+        return;
       }
+
+      setSavedSettlements(
+        (previous) =>
+          previous.map(
+            (item) =>
+              item.id ===
+              settlement.id
+                ? {
+                    ...item,
+                    status,
+                    paid_at:
+                      paidAt,
+                  }
+                : item
+          )
+      );
     };
 
-  // =====================================
+  // ======================================================
   // PAYMENT SUMMARY
-  // =====================================
+  // ======================================================
 
   const paidSettlementCount =
     savedSettlements.filter(
-      (
-        settlement
-      ) =>
+      (settlement) =>
         settlement.status ===
         "paid"
     ).length;
@@ -2431,9 +2245,7 @@ export default function Home() {
   const paidSettlementAmountPaise =
     savedSettlements
       .filter(
-        (
-          settlement
-        ) =>
+        (settlement) =>
           settlement.status ===
           "paid"
       )
@@ -2453,74 +2265,61 @@ export default function Home() {
     totalSettlementAmountPaise -
     paidSettlementAmountPaise;
 
-  const totalSettlementAmount =
-    toRupees(
-      totalSettlementAmountPaise
-    );
-
-  const paidSettlementAmount =
-    toRupees(
-      paidSettlementAmountPaise
-    );
-
-  const remainingSettlementAmount =
-    toRupees(
-      remainingSettlementAmountPaise
-    );
-
-  // =====================================
+  // ======================================================
   // EDIT GAME
-  // =====================================
+  // ======================================================
 
-  const editGame =
-    async () => {
-      if (
-        !isHost ||
-        !gameId
-      )
-        return;
+  const editGame = async () => {
+    if (
+      !isHost ||
+      !gameId
+    ) {
+      return;
+    }
 
-      const {
-        error,
-      } = await supabase
-        .from("games")
-        .update({
-          status:
-            "active",
+    const {
+      error,
+    } = await supabase
+      .from("games")
+      .update({
+        status:
+          "active",
 
-          finished_at:
-            null,
-        })
-        .eq(
-          "id",
-          gameId
-        );
-
-      if (error) {
-        console.error(
-          error
-        );
-
-        alert(
-          "Could not reopen game."
-        );
-
-        return;
-      }
-
-      setGameFinished(
-        false
+        finished_at:
+          null,
+      })
+      .eq(
+        "id",
+        gameId
       );
-    };
 
-  // =====================================
+    if (error) {
+      console.error(
+        "Edit game error:",
+        error
+      );
+
+      alert(
+        "Could not reopen game."
+      );
+
+      return;
+    }
+
+    setGameFinished(
+      false
+    );
+  };
+
+  // ======================================================
   // SHARE
-  // =====================================
+  // ======================================================
 
   const copyRoomCode =
     async () => {
-      if (!roomCode)
+      if (!roomCode) {
         return;
+      }
 
       await navigator.clipboard.writeText(
         roomCode
@@ -2533,8 +2332,9 @@ export default function Home() {
 
   const copyRoomLink =
     async () => {
-      if (!roomCode)
+      if (!roomCode) {
         return;
+      }
 
       const link =
         `${window.location.origin}/?room=${roomCode}`;
@@ -2548,48 +2348,46 @@ export default function Home() {
       );
     };
 
-  // =====================================
+  // ======================================================
   // NEW GAME
-  // =====================================
+  // ======================================================
 
-  const startNewGame =
-    () => {
-      setGameId(null);
+  const startNewGame = () => {
+    setGameId(null);
 
-      setPlayers([]);
+    setPlayers([]);
 
-      setSavedSettlements(
-        []
-      );
+    setSavedSettlements(
+      []
+    );
 
-      setGameStarted(
-        false
-      );
+    setGameStarted(
+      false
+    );
 
-      setGameFinished(
-        false
-      );
+    setGameFinished(
+      false
+    );
 
-      setHostUserId(
-        null
-      );
+    setHostUserId(
+      null
+    );
 
-      setRoomCode("");
+    setRoomCode("");
+    setJoinCode("");
 
-      setJoinCode("");
+    setNumberOfPlayers(
+      4
+    );
 
-      setNumberOfPlayers(
-        4
-      );
+    setBuyIn(500);
 
-      setBuyIn(500);
+    router.replace("/");
+  };
 
-      router.push("/");
-    };
-
-  // =====================================
+  // ======================================================
   // LOADING
-  // =====================================
+  // ======================================================
 
   if (loading) {
     return (
@@ -2601,14 +2399,14 @@ export default function Home() {
     );
   }
 
-  // =====================================
+  // ======================================================
   // UI
-  // =====================================
+  // ======================================================
 
   return (
     <main className="min-h-screen bg-[#061a12] text-white">
 
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-5 sm:py-8">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
 
         {/* HEADER */}
 
@@ -2640,11 +2438,9 @@ export default function Home() {
                 </span>
 
                 <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-bold text-gray-400">
-
                   {isHost
                     ? "HOST"
                     : "VIEWER"}
-
                 </span>
 
               </div>
@@ -2679,9 +2475,9 @@ export default function Home() {
 
         </header>
 
-        {/* ================================= */}
-        {/* CREATE / JOIN */}
-        {/* ================================= */}
+        {/* ================================================= */}
+        {/* HOME SCREEN */}
+        {/* ================================================= */}
 
         {!gameStarted && (
           <>
@@ -2714,13 +2510,13 @@ export default function Home() {
                     )
                   }
                   placeholder="ROOM CODE"
-                  className="flex-1 rounded-xl border border-white/10 bg-black/20 px-5 py-4 font-black tracking-[0.25em] outline-none"
+                  className="flex-1 rounded-xl border border-white/10 bg-black/20 px-5 py-4 font-black tracking-[0.25em] outline-none focus:border-emerald-500"
                 />
 
                 <button
                   onClick={joinGame}
                   disabled={joining}
-                  className="rounded-xl bg-emerald-500 px-8 py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-xl bg-emerald-500 px-8 py-4 font-black text-black disabled:opacity-50"
                 >
                   {joining
                     ? "Joining..."
@@ -2731,7 +2527,7 @@ export default function Home() {
 
             </section>
 
-            {/* CREATE GAME */}
+            {/* CREATE */}
 
             <section className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6">
 
@@ -2743,17 +2539,15 @@ export default function Home() {
 
                 <div>
 
-                  <p className="mb-2 text-sm text-gray-400">
-                    Players
-                  </p>
+                  <label className="mb-2 block text-sm text-gray-400">
+                    Number of Players
+                  </label>
 
                   <input
                     type="number"
                     min={2}
                     max={30}
-                    value={
-                      numberOfPlayers
-                    }
+                    value={numberOfPlayers}
                     onChange={(e) =>
                       setNumberOfPlayers(
                         Number(
@@ -2761,16 +2555,16 @@ export default function Home() {
                         )
                       )
                     }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-4"
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-4 outline-none focus:border-emerald-500"
                   />
 
                 </div>
 
                 <div>
 
-                  <p className="mb-2 text-sm text-gray-400">
+                  <label className="mb-2 block text-sm text-gray-400">
                     Buy-In
-                  </p>
+                  </label>
 
                   <input
                     type="number"
@@ -2784,7 +2578,7 @@ export default function Home() {
                         )
                       )
                     }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-4"
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-4 outline-none focus:border-emerald-500"
                   />
 
                 </div>
@@ -2792,9 +2586,7 @@ export default function Home() {
               </div>
 
               <button
-                onClick={
-                  createPlayers
-                }
+                onClick={createPlayers}
                 className="mt-6 rounded-xl bg-emerald-500 px-6 py-4 font-black text-black"
               >
                 Create Players
@@ -2804,8 +2596,7 @@ export default function Home() {
 
             {/* PLAYER NAMES */}
 
-            {players.length >
-              0 && (
+            {players.length > 0 && (
               <section className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6">
 
                 <h2 className="text-2xl font-black">
@@ -2815,16 +2606,10 @@ export default function Home() {
                 <div className="mt-5 grid gap-4 md:grid-cols-2">
 
                   {players.map(
-                    (
-                      player
-                    ) => (
+                    (player) => (
                       <input
-                        key={
-                          player.id
-                        }
-                        value={
-                          player.name
-                        }
+                        key={player.id}
+                        value={player.name}
                         placeholder={`Player ${player.id}`}
                         onChange={(e) =>
                           updateName(
@@ -2832,7 +2617,7 @@ export default function Home() {
                             e.target.value
                           )
                         }
-                        className="rounded-xl border border-white/10 bg-black/20 px-4 py-4"
+                        className="rounded-xl border border-white/10 bg-black/20 px-4 py-4 outline-none focus:border-emerald-500"
                       />
                     )
                   )}
@@ -2840,19 +2625,13 @@ export default function Home() {
                 </div>
 
                 <button
-                  onClick={
-                    startGame
-                  }
-                  disabled={
-                    saving
-                  }
-                  className="mt-6 w-full rounded-xl bg-emerald-500 px-6 py-4 text-lg font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={startGame}
+                  disabled={saving}
+                  className="mt-6 w-full rounded-xl bg-emerald-500 px-6 py-4 text-lg font-black text-black disabled:opacity-50"
                 >
-
                   {saving
                     ? "Starting..."
                     : "Start Game ♠"}
-
                 </button>
 
               </section>
@@ -2861,17 +2640,16 @@ export default function Home() {
           </>
         )}
 
-        {/* ================================= */}
-        {/* GAME */}
-        {/* ================================= */}
+        {/* ================================================= */}
+        {/* ACTIVE GAME */}
+        {/* ================================================= */}
 
         {gameStarted && (
           <>
 
-            {/* ROOM */}
+            {/* ROOM CODE */}
 
-            {roomCode &&
-              !gameFinished && (
+            {roomCode && !gameFinished && (
               <section className="mb-8 rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5 sm:p-6">
 
                 <p className="text-sm uppercase tracking-[0.25em] text-emerald-400">
@@ -2880,25 +2658,21 @@ export default function Home() {
 
                 <div className="mt-3 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
 
-                  <p className="break-all text-3xl font-black tracking-[0.2em] sm:text-4xl">
+                  <p className="text-3xl font-black tracking-[0.2em] sm:text-4xl">
                     {roomCode}
                   </p>
 
                   <div className="flex flex-wrap gap-3">
 
                     <button
-                      onClick={
-                        copyRoomCode
-                      }
+                      onClick={copyRoomCode}
                       className="rounded-xl border border-white/10 bg-white/5 px-5 py-3 font-bold"
                     >
                       Copy Code
                     </button>
 
                     <button
-                      onClick={
-                        copyRoomLink
-                      }
+                      onClick={copyRoomLink}
                       className="rounded-xl bg-emerald-500 px-5 py-3 font-black text-black"
                     >
                       Share Link
@@ -2911,52 +2685,40 @@ export default function Home() {
               </section>
             )}
 
-            {/* VIEWER NOTICE */}
-
             {isGuest && (
               <div className="mb-8 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5 text-blue-300">
-                Viewer Mode — changes made by the host appear here live.
+                Viewer Mode — changes from the host appear here live.
               </div>
             )}
 
-            {/* STATS */}
+            {/* TOP STATS */}
 
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
 
               <Stat
                 title="Players"
-                value={
-                  players.length.toString()
-                }
+                value={players.length.toString()}
               />
 
               <Stat
                 title="Active"
-                value={
-                  activePlayersCount.toString()
-                }
+                value={activePlayersCount.toString()}
                 highlight
               />
 
               <Stat
                 title="Buy-In"
-                value={formatMoney(
-                  buyIn
-                )}
+                value={formatMoney(buyIn)}
               />
 
               <Stat
                 title="Invested"
-                value={formatMoney(
-                  totalInvested
-                )}
+                value={formatMoney(totalInvested)}
               />
 
               <Stat
                 title="Cash Out"
-                value={formatMoney(
-                  totalCashOut
-                )}
+                value={formatMoney(totalCashOut)}
               />
 
             </section>
@@ -2971,12 +2733,9 @@ export default function Home() {
                   Players
                 </h2>
 
-                {!gameFinished &&
-                  isHost && (
+                {!gameFinished && isHost && (
                   <button
-                    onClick={
-                      addPlayerMidGame
-                    }
+                    onClick={addPlayerMidGame}
                     className="rounded-xl bg-emerald-500 px-4 py-3 font-black text-black"
                   >
                     + Player
@@ -2988,9 +2747,7 @@ export default function Home() {
               <div className="mt-6 space-y-4">
 
                 {players.map(
-                  (
-                    player
-                  ) => {
+                  (player) => {
                     const investedPaise =
                       buyInPaise *
                       (1 +
@@ -3001,15 +2758,12 @@ export default function Home() {
                         investedPaise
                       );
 
-                    const profitPaise =
-                      toPaise(
-                        player.cashOut
-                      ) -
-                      investedPaise;
-
                     const profit =
                       toRupees(
-                        profitPaise
+                        toPaise(
+                          player.cashOut
+                        ) -
+                          investedPaise
                       );
 
                     return (
@@ -3031,14 +2785,12 @@ export default function Home() {
 
                           <div>
 
-                            <p className="mb-2 text-xs uppercase tracking-wider text-gray-500">
-                              Player
+                            <p className="mb-2 text-xs text-gray-500">
+                              PLAYER
                             </p>
 
                             <input
-                              value={
-                                player.name
-                              }
+                              value={player.name}
                               disabled={
                                 !isHost ||
                                 gameFinished
@@ -3088,15 +2840,13 @@ export default function Home() {
                                     -1
                                   )
                                 }
-                                className="h-10 w-10 rounded-lg bg-white/5 font-bold disabled:cursor-not-allowed disabled:opacity-30"
+                                className="h-10 w-10 rounded-lg bg-white/5 font-bold disabled:opacity-30"
                               >
-                                -
+                                −
                               </button>
 
-                              <b className="min-w-6 text-center text-lg">
-                                {
-                                  player.rebuys
-                                }
+                              <b>
+                                {player.rebuys}
                               </b>
 
                               <button
@@ -3111,7 +2861,7 @@ export default function Home() {
                                     1
                                   )
                                 }
-                                className="h-10 w-10 rounded-lg bg-emerald-500 font-black text-black disabled:cursor-not-allowed disabled:opacity-30"
+                                className="h-10 w-10 rounded-lg bg-emerald-500 font-black text-black disabled:opacity-30"
                               >
                                 +
                               </button>
@@ -3148,8 +2898,7 @@ export default function Home() {
                                   e.target.value;
 
                                 if (
-                                  value ===
-                                  ""
+                                  value === ""
                                 ) {
                                   clearCashOut(
                                     player.id
@@ -3160,38 +2909,34 @@ export default function Home() {
 
                                 updateCashOut(
                                   player.id,
-                                  Number(
-                                    value
-                                  )
+                                  Number(value)
                                 );
                               }}
                               onBlur={() => {
-                                const latestPlayer =
+                                const current =
                                   players.find(
-                                    (
-                                      item
-                                    ) =>
+                                    (item) =>
                                       item.id ===
                                       player.id
                                   );
 
                                 if (
-                                  latestPlayer
+                                  current
                                 ) {
                                   saveCashOut(
-                                    latestPlayer
+                                    current
                                   );
                                 }
                               }}
-                              className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 disabled:opacity-50"
                             />
 
                             {player.cashOutEntered ? (
-                              <p className="mt-1 text-xs font-medium text-emerald-400">
+                              <p className="mt-1 text-xs text-emerald-400">
                                 ✓ Cash-out entered
                               </p>
                             ) : (
-                              <p className="mt-1 text-xs font-medium text-yellow-400">
+                              <p className="mt-1 text-xs text-yellow-400">
                                 Not entered
                               </p>
                             )}
@@ -3210,9 +2955,7 @@ export default function Home() {
 
                               {player.cashOutEntered ? (
                                 <Money
-                                  value={
-                                    profit
-                                  }
+                                  value={profit}
                                 />
                               ) : (
                                 <span className="font-bold text-gray-500">
@@ -3239,7 +2982,7 @@ export default function Home() {
                                     player.id
                                   )
                                 }
-                                className="rounded-lg bg-yellow-500/10 px-4 py-2 font-bold text-yellow-400 disabled:cursor-not-allowed disabled:opacity-30"
+                                className="rounded-lg bg-yellow-500/10 px-4 py-2 font-bold text-yellow-400 disabled:opacity-30"
                               >
                                 Player Left
                               </button>
@@ -3260,7 +3003,7 @@ export default function Home() {
                                       player.id
                                     )
                                   }
-                                  className="rounded-lg bg-emerald-500/10 px-4 py-2 font-bold text-emerald-400 disabled:cursor-not-allowed disabled:opacity-30"
+                                  className="rounded-lg bg-emerald-500/10 px-4 py-2 font-bold text-emerald-400 disabled:opacity-30"
                                 >
                                   Reopen
                                 </button>
@@ -3279,16 +3022,11 @@ export default function Home() {
 
               </div>
 
-              {!gameFinished &&
-                isHost && (
+              {!gameFinished && isHost && (
                 <button
-                  onClick={
-                    finishGame
-                  }
-                  disabled={
-                    saving
-                  }
-                  className="mt-8 w-full rounded-xl bg-emerald-500 px-6 py-4 text-lg font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={finishGame}
+                  disabled={saving}
+                  className="mt-8 w-full rounded-xl bg-emerald-500 px-6 py-4 text-lg font-black text-black disabled:opacity-50"
                 >
                   {saving
                     ? "Finishing Game..."
@@ -3298,9 +3036,9 @@ export default function Home() {
 
             </section>
 
-            {/* ================================= */}
+            {/* ================================================= */}
             {/* FINAL RESULTS */}
-            {/* ================================= */}
+            {/* ================================================= */}
 
             {gameFinished && (
               <section className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-6">
@@ -3315,8 +3053,7 @@ export default function Home() {
 
                 {/* DIFFERENCE */}
 
-                {differencePaise !==
-                  0 && (
+                {differencePaise !== 0 && (
                   <div className="mt-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-5">
 
                     <p className="font-bold text-yellow-300">
@@ -3324,7 +3061,7 @@ export default function Home() {
                     </p>
 
                     <p className="mt-2 text-gray-300">
-                      The table difference was{" "}
+                      Table difference:{" "}
                       <strong>
                         {formatMoney(
                           Math.abs(
@@ -3332,23 +3069,10 @@ export default function Home() {
                           )
                         )}
                       </strong>
-                      .
                     </p>
 
                     <p className="mt-2 text-sm text-gray-400">
-                      The difference was distributed as equally as possible across all players down to the nearest paise.
-                    </p>
-
-                    <p className="mt-3">
-
-                      Approximate adjustment per player:{" "}
-
-                      <Money
-                        value={
-                          adjustmentPerPlayer
-                        }
-                      />
-
+                      The amount was distributed as equally as possible across all players, down to the nearest paise.
                     </p>
 
                   </div>
@@ -3372,22 +3096,15 @@ export default function Home() {
 
                     </div>
 
-                    {savedSettlements.length >
-                      0 && (
-                      <div className="flex flex-wrap gap-2">
+                    {savedSettlements.length > 0 && (
+                      <div className="flex gap-2">
 
                         <span className="rounded-full bg-emerald-500/10 px-3 py-2 text-sm font-bold text-emerald-400">
-                          {
-                            paidSettlementCount
-                          }{" "}
-                          Paid
+                          {paidSettlementCount} Paid
                         </span>
 
                         <span className="rounded-full bg-yellow-500/10 px-3 py-2 text-sm font-bold text-yellow-400">
-                          {
-                            pendingSettlementCount
-                          }{" "}
-                          Pending
+                          {pendingSettlementCount} Pending
                         </span>
 
                       </div>
@@ -3395,50 +3112,46 @@ export default function Home() {
 
                   </div>
 
-                  {/* PAYMENT SUMMARY */}
-
-                  {savedSettlements.length >
-                    0 && (
+                  {savedSettlements.length > 0 && (
                     <div className="mt-5 grid gap-4 sm:grid-cols-3">
 
                       <MiniStat
                         title="Total Settlement"
                         value={formatMoney(
-                          totalSettlementAmount
+                          toRupees(
+                            totalSettlementAmountPaise
+                          )
                         )}
                       />
 
                       <MiniStat
                         title="Paid"
                         value={formatMoney(
-                          paidSettlementAmount
+                          toRupees(
+                            paidSettlementAmountPaise
+                          )
                         )}
                       />
 
                       <MiniStat
                         title="Remaining"
                         value={formatMoney(
-                          remainingSettlementAmount
+                          toRupees(
+                            remainingSettlementAmountPaise
+                          )
                         )}
                       />
 
                     </div>
                   )}
 
-                  {/* SETTLEMENTS */}
-
-                  {savedSettlements.length >
-                  0 ? (
+                  {savedSettlements.length > 0 ? (
                     <div className="mt-5 space-y-4">
 
                       {savedSettlements.map(
-                        (
-                          settlement
-                        ) => (
+                        (settlement) => (
                           <div
-                            key={
-                              settlement.id
-                            }
+                            key={settlement.id}
                             className={`rounded-2xl border p-5 ${
                               settlement.status ===
                               "paid"
@@ -3492,9 +3205,8 @@ export default function Home() {
 
                               </div>
 
-                              {settlement.status ===
-                              "paid" ? (
-                                <div className="flex flex-wrap gap-3">
+                              {settlement.status === "paid" ? (
+                                <div className="flex gap-3">
 
                                   <span className="rounded-xl bg-emerald-500/10 px-4 py-3 font-black text-emerald-400">
                                     ✓ Paid
@@ -3516,7 +3228,7 @@ export default function Home() {
 
                                 </div>
                               ) : (
-                                <div className="flex flex-wrap gap-3">
+                                <div className="flex gap-3">
 
                                   <span className="rounded-xl bg-yellow-500/10 px-4 py-3 font-bold text-yellow-400">
                                     Pending
@@ -3546,8 +3258,7 @@ export default function Home() {
                       )}
 
                     </div>
-                  ) : calculatedSettlements.length >
-                    0 ? (
+                  ) : calculatedSettlements.length > 0 ? (
                     <div className="mt-5 space-y-3">
 
                       {calculatedSettlements.map(
@@ -3556,26 +3267,20 @@ export default function Home() {
                           index
                         ) => (
                           <div
-                            key={
-                              `${settlement.from}-${settlement.to}-${index}`
-                            }
-                            className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-black/20 p-5 sm:flex-row sm:items-center sm:justify-between"
+                            key={`${settlement.from}-${settlement.to}-${index}`}
+                            className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/20 p-5 sm:flex-row sm:items-center sm:justify-between"
                           >
 
                             <span>
 
                               <b className="text-red-400">
-                                {
-                                  settlement.from
-                                }
+                                {settlement.from}
                               </b>
 
                               {" → "}
 
                               <b className="text-emerald-400">
-                                {
-                                  settlement.to
-                                }
+                                {settlement.to}
                               </b>
 
                             </span>
@@ -3592,16 +3297,14 @@ export default function Home() {
 
                     </div>
                   ) : (
-                    <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6 text-emerald-300">
+                    <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6 text-emerald-400">
                       ✓ No payments required.
                     </div>
                   )}
 
                 </div>
 
-                {/* ================================= */}
-                {/* FINAL PLAYER RESULTS */}
-                {/* ================================= */}
+                {/* FINAL TABLE */}
 
                 <div className="mt-10 overflow-x-auto rounded-2xl border border-white/10">
 
@@ -3609,36 +3312,17 @@ export default function Home() {
 
                     <div className="grid grid-cols-6 bg-black/20 px-5 py-4 text-xs uppercase text-gray-500">
 
-                      <span>
-                        Player
-                      </span>
-
-                      <span>
-                        Invested
-                      </span>
-
-                      <span>
-                        Cash Out
-                      </span>
-
-                      <span>
-                        Raw P/L
-                      </span>
-
-                      <span>
-                        Adjustment
-                      </span>
-
-                      <span>
-                        Final P/L
-                      </span>
+                      <span>Player</span>
+                      <span>Invested</span>
+                      <span>Cash Out</span>
+                      <span>Raw P/L</span>
+                      <span>Adjustment</span>
+                      <span>Final P/L</span>
 
                     </div>
 
                     {adjustedBalances.map(
-                      (
-                        player
-                      ) => (
+                      (player) => (
                         <div
                           key={
                             player.dbId ||
@@ -3648,9 +3332,7 @@ export default function Home() {
                         >
 
                           <b>
-                            {
-                              player.name
-                            }
+                            {player.name}
                           </b>
 
                           <span>
@@ -3666,15 +3348,11 @@ export default function Home() {
                           </span>
 
                           <Money
-                            value={
-                              player.rawProfit
-                            }
+                            value={player.rawProfit}
                           />
 
                           <Money
-                            value={
-                              player.adjustment
-                            }
+                            value={player.adjustment}
                           />
 
                           <Money
@@ -3691,7 +3369,7 @@ export default function Home() {
 
                 </div>
 
-                {/* FINAL BALANCE */}
+                {/* BALANCE */}
 
                 <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
 
@@ -3702,15 +3380,12 @@ export default function Home() {
                   <div className="mt-2 text-2xl">
 
                     <Money
-                      value={
-                        finalBalance
-                      }
+                      value={finalBalance}
                     />
 
                   </div>
 
-                  {finalBalancePaise ===
-                    0 && (
+                  {finalBalancePaise === 0 && (
                     <p className="mt-2 text-sm font-semibold text-emerald-400">
                       ✓ Table balances exactly
                     </p>
@@ -3724,18 +3399,14 @@ export default function Home() {
                   <div className="mt-6 grid gap-3 sm:grid-cols-2">
 
                     <button
-                      onClick={
-                        editGame
-                      }
+                      onClick={editGame}
                       className="rounded-xl border border-white/10 bg-white/5 px-6 py-4 font-bold hover:bg-white/10"
                     >
                       Edit Game
                     </button>
 
                     <button
-                      onClick={
-                        startNewGame
-                      }
+                      onClick={startNewGame}
                       className="rounded-xl bg-emerald-500 px-6 py-4 font-black text-black"
                     >
                       + New Game
@@ -3756,32 +3427,9 @@ export default function Home() {
   );
 }
 
-// =====================================
-// FORMAT MONEY
-// =====================================
-
-function formatMoney(
-  value: number
-) {
-  return `₹${value.toLocaleString(
-    "en-IN",
-    {
-      minimumFractionDigits:
-        Number.isInteger(
-          value
-        )
-          ? 0
-          : 2,
-
-      maximumFractionDigits:
-        2,
-    }
-  )}`;
-}
-
-// =====================================
-// STAT CARD
-// =====================================
+// ======================================================
+// SMALL COMPONENTS
+// ======================================================
 
 function Stat({
   title,
@@ -3813,10 +3461,6 @@ function Stat({
   );
 }
 
-// =====================================
-// MINI STAT
-// =====================================
-
 function MiniStat({
   title,
   value,
@@ -3839,44 +3483,60 @@ function MiniStat({
   );
 }
 
-// =====================================
-// MONEY DISPLAY
-// =====================================
-
 function Money({
   value,
 }: {
   value: number;
 }) {
-  const valuePaise =
+  const paise =
     toPaise(value);
 
-  const cleanValue =
-    toRupees(
-      valuePaise
-    );
+  const clean =
+    toRupees(paise);
 
   return (
     <span
       className={`font-black ${
-        valuePaise >
-        0
+        paise > 0
           ? "text-emerald-400"
-          : valuePaise <
-            0
+          : paise < 0
           ? "text-red-400"
           : "text-gray-400"
       }`}
     >
-
-      {valuePaise > 0
-        ? "+"
-        : ""}
-
-      {formatMoney(
-        cleanValue
-      )}
-
+      {paise > 0 ? "+" : ""}
+      {formatMoney(clean)}
     </span>
+  );
+}
+
+// ======================================================
+// IMPORTANT:
+// useSearchParams() is inside PokerManager.
+// PokerManager is wrapped by Suspense.
+// This fixes Next.js production prerendering.
+// ======================================================
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[#061a12] text-white">
+          <div className="text-center">
+
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-400">
+              ♠ Poker Night
+            </p>
+
+            <p className="mt-4 text-gray-400">
+              Loading Poker Manager...
+            </p>
+
+          </div>
+        </main>
+      }
+    >
+      <PokerManager />
+    </Suspense>
   );
 }
