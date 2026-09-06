@@ -44,6 +44,7 @@ function formatMoney(value: number) {
 type Player = {
   id: number;
   dbId?: string;
+  position: number;
   name: string;
   rebuys: number;
   cashOut: number;
@@ -53,6 +54,7 @@ type Player = {
 
 type PlayerRow = {
   id: string;
+  position: number;
   name: string;
   rebuys: number;
   cash_out: number | string;
@@ -120,7 +122,6 @@ function PokerManager() {
   const [gameId, setGameId] = useState<string | null>(null);
 
   const [hostUserId, setHostUserId] = useState<string | null>(null);
-
   const [currentUserId, setCurrentUserId] = useState<string | null>(
     null
   );
@@ -244,6 +245,7 @@ function PokerManager() {
         .select(
           `
           id,
+          position,
           name,
           rebuys,
           cash_out,
@@ -253,7 +255,7 @@ function PokerManager() {
         `
         )
         .eq("game_id", existingGameId)
-        .order("created_at", {
+        .order("position", {
           ascending: true,
         });
 
@@ -288,51 +290,45 @@ function PokerManager() {
         (playerData || []) as PlayerRow[];
 
       const loadedPlayers: Player[] =
-        playerRows.map(
-          (player, index) => ({
-            id: index + 1,
-            dbId: player.id,
-            name: player.name,
-            rebuys: Number(player.rebuys || 0),
-            cashOut: Number(player.cash_out || 0),
-            cashOutEntered: Boolean(
-              player.cash_out_entered
-            ),
-            active: Boolean(player.active),
-          })
-        );
+        playerRows.map((player) => ({
+          id: player.position,
+          dbId: player.id,
+          position: player.position,
+          name: player.name,
+          rebuys: Number(player.rebuys || 0),
+          cashOut: Number(player.cash_out || 0),
+          cashOutEntered: Boolean(
+            player.cash_out_entered
+          ),
+          active: Boolean(player.active),
+        }));
 
       const settlementRows =
         (settlementData || []) as SettlementRow[];
 
       const loadedSettlements: SavedSettlement[] =
-        settlementRows.map(
-          (item) => ({
-            id: item.id,
-            game_id: item.game_id,
-            payer_name: item.payer_name,
-            receiver_name: item.receiver_name,
-            amount: Number(item.amount),
-            status: item.status,
-            created_at: item.created_at,
-            paid_at: item.paid_at,
-          })
-        );
+        settlementRows.map((item) => ({
+          id: item.id,
+          game_id: item.game_id,
+          payer_name: item.payer_name,
+          receiver_name: item.receiver_name,
+          amount: Number(item.amount),
+          status: item.status,
+          created_at: item.created_at,
+          paid_at: item.paid_at,
+        }));
 
       setGameId(game.id);
       setHostUserId(game.user_id);
+
       setBuyIn(Number(game.buy_in));
+
       setRoomCode(game.room_code || "");
 
       setPlayers(loadedPlayers);
+      setSavedSettlements(loadedSettlements);
 
-      setSavedSettlements(
-        loadedSettlements
-      );
-
-      setNumberOfPlayers(
-        loadedPlayers.length
-      );
+      setNumberOfPlayers(loadedPlayers.length);
 
       setGameStarted(true);
 
@@ -376,9 +372,7 @@ function PokerManager() {
         return;
       }
 
-      setCurrentUserId(
-        user.id
-      );
+      setCurrentUserId(user.id);
 
       const id =
         searchParams.get("id");
@@ -388,9 +382,7 @@ function PokerManager() {
 
       if (room && !id) {
         setJoinCode(
-          room
-            .toUpperCase()
-            .trim()
+          room.toUpperCase().trim()
         );
 
         setLoading(false);
@@ -441,11 +433,6 @@ function PokerManager() {
         .single();
 
       if (gameError || !gameData) {
-        console.error(
-          "Realtime game error:",
-          gameError
-        );
-
         return;
       }
 
@@ -460,6 +447,7 @@ function PokerManager() {
         .select(
           `
           id,
+          position,
           name,
           rebuys,
           cash_out,
@@ -469,7 +457,7 @@ function PokerManager() {
         `
         )
         .eq("game_id", gameId)
-        .order("created_at", {
+        .order("position", {
           ascending: true,
         });
 
@@ -496,48 +484,38 @@ function PokerManager() {
         (playerData || []) as PlayerRow[];
 
       const loadedPlayers: Player[] =
-        playerRows.map(
-          (player, index) => ({
-            id: index + 1,
-            dbId: player.id,
-            name: player.name,
-            rebuys: Number(player.rebuys || 0),
-            cashOut: Number(player.cash_out || 0),
-            cashOutEntered: Boolean(
-              player.cash_out_entered
-            ),
-            active: Boolean(player.active),
-          })
-        );
+        playerRows.map((player) => ({
+          id: player.position,
+          dbId: player.id,
+          position: player.position,
+          name: player.name,
+          rebuys: Number(player.rebuys || 0),
+          cashOut: Number(player.cash_out || 0),
+          cashOutEntered: Boolean(
+            player.cash_out_entered
+          ),
+          active: Boolean(player.active),
+        }));
 
       const settlementRows =
         (settlementData || []) as SettlementRow[];
 
       const loadedSettlements: SavedSettlement[] =
-        settlementRows.map(
-          (item) => ({
-            id: item.id,
-            game_id: item.game_id,
-            payer_name: item.payer_name,
-            receiver_name: item.receiver_name,
-            amount: Number(item.amount),
-            status: item.status,
-            created_at: item.created_at,
-            paid_at: item.paid_at,
-          })
-        );
+        settlementRows.map((item) => ({
+          id: item.id,
+          game_id: item.game_id,
+          payer_name: item.payer_name,
+          receiver_name: item.receiver_name,
+          amount: Number(item.amount),
+          status: item.status,
+          created_at: item.created_at,
+          paid_at: item.paid_at,
+        }));
 
-      setPlayers(
-        loadedPlayers
-      );
+      setPlayers(loadedPlayers);
+      setSavedSettlements(loadedSettlements);
 
-      setSavedSettlements(
-        loadedSettlements
-      );
-
-      setBuyIn(
-        Number(game.buy_in)
-      );
+      setBuyIn(Number(game.buy_in));
 
       setRoomCode(
         game.room_code || ""
@@ -557,7 +535,7 @@ function PokerManager() {
   );
 
   // ======================================================
-  // REALTIME SUBSCRIPTION
+  // REALTIME
   // ======================================================
 
   useEffect(() => {
@@ -610,30 +588,20 @@ function PokerManager() {
 
         .subscribe((status) => {
           if (
-            status ===
-            "SUBSCRIBED"
+            status === "SUBSCRIBED"
           ) {
-            setRealtimeConnected(
-              true
-            );
+            setRealtimeConnected(true);
           } else if (
-            status ===
-              "CHANNEL_ERROR" ||
-            status ===
-              "TIMED_OUT" ||
-            status ===
-              "CLOSED"
+            status === "CHANNEL_ERROR" ||
+            status === "TIMED_OUT" ||
+            status === "CLOSED"
           ) {
-            setRealtimeConnected(
-              false
-            );
+            setRealtimeConnected(false);
           }
         });
 
     return () => {
-      setRealtimeConnected(
-        false
-      );
+      setRealtimeConnected(false);
 
       supabase.removeChannel(
         channel
@@ -648,141 +616,125 @@ function PokerManager() {
   // JOIN GAME
   // ======================================================
 
-  const joinGame =
-    async () => {
-      if (joining) return;
+  const joinGame = async () => {
+    if (joining) return;
 
-      const cleanedCode =
-        joinCode
-          .trim()
-          .toUpperCase();
+    const cleanedCode =
+      joinCode.trim().toUpperCase();
 
-      if (
-        cleanedCode.length !==
-        6
-      ) {
-        alert(
-          "Enter the 6-character room code."
-        );
+    if (
+      cleanedCode.length !== 6
+    ) {
+      alert(
+        "Enter the 6-character room code."
+      );
 
-        return;
-      }
+      return;
+    }
 
-      setJoining(true);
+    setJoining(true);
 
-      const {
-        data,
-        error,
-      } =
-        await supabase.rpc(
-          "join_game_by_code",
-          {
-            input_room_code:
-              cleanedCode,
-          }
-        );
+    const {
+      data,
+      error,
+    } =
+      await supabase.rpc(
+        "join_game_by_code",
+        {
+          input_room_code:
+            cleanedCode,
+        }
+      );
 
-      if (
-        error ||
-        !data
-      ) {
-        console.error(
-          "Join error:",
-          error
-        );
-
-        alert(
-          "Room not found or game is no longer active."
-        );
-
-        setJoining(false);
-        return;
-      }
+    if (
+      error ||
+      !data
+    ) {
+      alert(
+        "Room not found or game is no longer active."
+      );
 
       setJoining(false);
+      return;
+    }
 
-      router.replace(
-        `/?id=${data}`
-      );
-    };
+    setJoining(false);
+
+    router.replace(
+      `/?id=${data}`
+    );
+  };
 
   // ======================================================
   // CREATE PLAYERS
   // ======================================================
 
-  const createPlayers =
-    () => {
-      if (
-        !Number.isInteger(
-          numberOfPlayers
-        ) ||
-        numberOfPlayers <
-          2 ||
-        numberOfPlayers >
-          30
-      ) {
-        alert(
-          "Enter between 2 and 30 players."
-        );
-
-        return;
-      }
-
-      if (
-        !Number.isFinite(
-          buyIn
-        ) ||
-        buyIn <= 0
-      ) {
-        alert(
-          "Enter a valid buy-in."
-        );
-
-        return;
-      }
-
-      setBuyIn(
-        toRupees(
-          toPaise(buyIn)
-        )
+  const createPlayers = () => {
+    if (
+      !Number.isInteger(
+        numberOfPlayers
+      ) ||
+      numberOfPlayers < 2 ||
+      numberOfPlayers > 30
+    ) {
+      alert(
+        "Enter between 2 and 30 players."
       );
 
-      const newPlayers: Player[] =
-        Array.from(
-          {
-            length:
-              numberOfPlayers,
-          },
-          (
-            _,
-            index
-          ) => ({
-            id: index + 1,
-            name: "",
-            rebuys: 0,
-            cashOut: 0,
-            cashOutEntered:
-              false,
-            active: true,
-          })
-        );
+      return;
+    }
 
-      setPlayers(
-        newPlayers
+    if (
+      !Number.isFinite(buyIn) ||
+      buyIn <= 0
+    ) {
+      alert(
+        "Enter a valid buy-in."
       );
-    };
+
+      return;
+    }
+
+    setBuyIn(
+      toRupees(
+        toPaise(buyIn)
+      )
+    );
+
+    const newPlayers: Player[] =
+      Array.from(
+        {
+          length:
+            numberOfPlayers,
+        },
+        (
+          _,
+          index
+        ) => ({
+          id: index + 1,
+          position: index + 1,
+          name: "",
+          rebuys: 0,
+          cashOut: 0,
+          cashOutEntered: false,
+          active: true,
+        })
+      );
+
+    setPlayers(
+      newPlayers
+    );
+  };
 
   // ======================================================
-  // PLAYER NAME - ONLY BEFORE GAME START
+  // UPDATE NAME BEFORE GAME
   // ======================================================
 
   const updateName = (
     id: number,
     name: string
   ) => {
-    if (gameStarted) {
-      return;
-    }
+    if (gameStarted) return;
 
     setPlayers(
       (previous) =>
@@ -802,239 +754,246 @@ function PokerManager() {
   // START GAME
   // ======================================================
 
-  const startGame =
-    async () => {
-      if (saving) return;
+  const startGame = async () => {
+    if (saving) return;
 
-      if (
-        players.some(
-          (player) =>
-            !player.name.trim()
-        )
-      ) {
-        alert(
-          "Enter every player's name."
-        );
+    if (
+      players.some(
+        (player) =>
+          !player.name.trim()
+      )
+    ) {
+      alert(
+        "Enter every player's name."
+      );
 
-        return;
-      }
+      return;
+    }
 
-      const normalizedNames =
-        players.map(
-          (player) =>
-            player.name
-              .trim()
-              .toLowerCase()
-        );
+    const normalizedNames =
+      players.map(
+        (player) =>
+          player.name
+            .trim()
+            .toLowerCase()
+      );
 
-      if (
-        new Set(
-          normalizedNames
-        ).size !==
-        normalizedNames.length
-      ) {
-        alert(
-          "Player names must be unique."
-        );
+    if (
+      new Set(
+        normalizedNames
+      ).size !==
+      normalizedNames.length
+    ) {
+      alert(
+        "Player names must be unique."
+      );
 
-        return;
-      }
+      return;
+    }
 
-      setSaving(true);
+    setSaving(true);
 
+    const {
+      data: { user },
+    } =
+      await supabase.auth.getUser();
+
+    if (!user) {
+      setSaving(false);
+
+      router.replace("/login");
+      return;
+    }
+
+    let createdGame:
+      | LoadedGame
+      | null = null;
+
+    let generatedCode =
+      generateRoomCode();
+
+    for (
+      let attempt = 0;
+      attempt < 5;
+      attempt++
+    ) {
       const {
-        data: {
-          user,
-        },
-      } =
-        await supabase.auth.getUser();
-
-      if (!user) {
-        setSaving(false);
-
-        router.replace(
-          "/login"
-        );
-
-        return;
-      }
-
-      let createdGame:
-        | LoadedGame
-        | null = null;
-
-      let generatedCode =
-        generateRoomCode();
-
-      for (
-        let attempt = 0;
-        attempt < 5;
-        attempt++
-      ) {
-        const {
-          data,
-          error,
-        } = await supabase
-          .from("games")
-          .insert({
-            user_id:
-              user.id,
-
-            buy_in:
-              toRupees(
-                toPaise(buyIn)
-              ),
-
-            status:
-              "active",
-
-            room_code:
-              generatedCode,
-          })
-          .select(
-            `
-            id,
-            user_id,
-            buy_in,
-            status,
-            room_code
-          `
-          )
-          .single();
-
-        if (
-          !error &&
-          data
-        ) {
-          createdGame =
-            data as LoadedGame;
-
-          break;
-        }
-
-        generatedCode =
-          generateRoomCode();
-      }
-
-      if (!createdGame) {
-        alert(
-          "Could not create game."
-        );
-
-        setSaving(false);
-        return;
-      }
-
-      const {
-        data:
-          createdPlayersData,
-        error:
-          playersError,
+        data,
+        error,
       } = await supabase
-        .from("players")
-        .insert(
-          players.map(
-            (player) => ({
-              game_id:
-                createdGame!.id,
+        .from("games")
+        .insert({
+          user_id:
+            user.id,
 
-              name:
-                player.name.trim(),
+          buy_in:
+            toRupees(
+              toPaise(buyIn)
+            ),
 
-              rebuys: 0,
+          status:
+            "active",
 
-              cash_out: 0,
-
-              cash_out_entered:
-                false,
-
-              active: true,
-            })
-          )
-        )
+          room_code:
+            generatedCode,
+        })
         .select(
           `
           id,
-          name,
-          rebuys,
-          cash_out,
-          cash_out_entered,
-          active,
-          created_at
+          user_id,
+          buy_in,
+          status,
+          room_code
         `
-        );
+        )
+        .single();
 
       if (
-        playersError
+        !error &&
+        data
       ) {
-        console.error(
-          playersError
-        );
+        createdGame =
+          data as LoadedGame;
 
-        await supabase
-          .from("games")
-          .delete()
-          .eq(
-            "id",
-            createdGame.id
-          );
-
-        alert(
-          "Could not create players."
-        );
-
-        setSaving(false);
-        return;
+        break;
       }
 
-      const createdRows =
-        (createdPlayersData ||
-          []) as PlayerRow[];
+      generatedCode =
+        generateRoomCode();
+    }
 
-      setPlayers(
-        players.map(
-          (
-            player,
-            index
-          ) => ({
-            ...player,
-            dbId:
-              createdRows[
-                index
-              ]?.id,
-          })
-        )
+    if (!createdGame) {
+      alert(
+        "Could not create game."
       );
-
-      setGameId(
-        createdGame.id
-      );
-
-      setHostUserId(
-        user.id
-      );
-
-      setCurrentUserId(
-        user.id
-      );
-
-      setRoomCode(
-        generatedCode
-      );
-
-      setSavedSettlements(
-        []
-      );
-
-      setGameStarted(true);
-      setGameFinished(false);
 
       setSaving(false);
+      return;
+    }
 
-      router.replace(
-        `/?id=${createdGame.id}`
+    const {
+      data:
+        createdPlayersData,
+      error:
+        playersError,
+    } = await supabase
+      .from("players")
+      .insert(
+        players.map(
+          (player) => ({
+            game_id:
+              createdGame!.id,
+
+            position:
+              player.position,
+
+            name:
+              player.name.trim(),
+
+            rebuys: 0,
+
+            cash_out: 0,
+
+            cash_out_entered:
+              false,
+
+            active: true,
+          })
+        )
+      )
+      .select(
+        `
+        id,
+        position,
+        name,
+        rebuys,
+        cash_out,
+        cash_out_entered,
+        active,
+        created_at
+      `
       );
-    };
+
+    if (
+      playersError
+    ) {
+      console.error(
+        "Player creation error:",
+        playersError
+      );
+
+      await supabase
+        .from("games")
+        .delete()
+        .eq(
+          "id",
+          createdGame.id
+        );
+
+      alert(
+        "Could not create players."
+      );
+
+      setSaving(false);
+      return;
+    }
+
+    const createdRows =
+      (createdPlayersData ||
+        []) as PlayerRow[];
+
+    const sortedCreatedRows =
+      [...createdRows].sort(
+        (a, b) =>
+          a.position -
+          b.position
+      );
+
+    setPlayers(
+      players.map(
+        (player) => {
+          const row =
+            sortedCreatedRows.find(
+              (item) =>
+                item.position ===
+                player.position
+            );
+
+          return {
+            ...player,
+            dbId: row?.id,
+          };
+        }
+      )
+    );
+
+    setGameId(
+      createdGame.id
+    );
+
+    setHostUserId(
+      user.id
+    );
+
+    setCurrentUserId(
+      user.id
+    );
+
+    setRoomCode(
+      generatedCode
+    );
+
+    setSavedSettlements([]);
+
+    setGameStarted(true);
+    setGameFinished(false);
+
+    setSaving(false);
+
+    router.replace(
+      `/?id=${createdGame.id}`
+    );
+  };
 
   // ======================================================
   // ADD PLAYER MID GAME
@@ -1050,21 +1009,21 @@ function PokerManager() {
         return;
       }
 
-      const nextId =
+      const nextPosition =
         players.length === 0
           ? 1
           : Math.max(
               ...players.map(
                 (player) =>
-                  player.id
+                  player.position
               )
             ) + 1;
 
       let name =
-        `Player ${nextId}`;
+        `Player ${nextPosition}`;
 
       let suffix =
-        nextId;
+        nextPosition;
 
       while (
         players.some(
@@ -1076,6 +1035,7 @@ function PokerManager() {
         )
       ) {
         suffix += 1;
+
         name =
           `Player ${suffix}`;
       }
@@ -1086,8 +1046,10 @@ function PokerManager() {
       } = await supabase
         .from("players")
         .insert({
-          game_id:
-            gameId,
+          game_id: gameId,
+
+          position:
+            nextPosition,
 
           name,
 
@@ -1100,13 +1062,29 @@ function PokerManager() {
 
           active: true,
         })
-        .select()
+        .select(
+          `
+          id,
+          position,
+          name,
+          rebuys,
+          cash_out,
+          cash_out_entered,
+          active,
+          created_at
+        `
+        )
         .single();
 
       if (
         error ||
         !data
       ) {
+        console.error(
+          "Add player error:",
+          error
+        );
+
         alert(
           "Could not add player."
         );
@@ -1114,29 +1092,51 @@ function PokerManager() {
         return;
       }
 
+      const row =
+        data as PlayerRow;
+
       setPlayers(
-        (previous) => [
-          ...previous,
+        (previous) =>
+          [
+            ...previous,
+            {
+              id:
+                row.position,
 
-          {
-            id:
-              nextId,
+              dbId:
+                row.id,
 
-            dbId:
-              data.id,
+              position:
+                row.position,
 
-            name,
+              name:
+                row.name,
 
-            rebuys: 0,
+              rebuys:
+                Number(
+                  row.rebuys
+                ),
 
-            cashOut: 0,
+              cashOut:
+                Number(
+                  row.cash_out
+                ),
 
-            cashOutEntered:
-              false,
+              cashOutEntered:
+                Boolean(
+                  row.cash_out_entered
+                ),
 
-            active: true,
-          },
-        ]
+              active:
+                Boolean(
+                  row.active
+                ),
+            },
+          ].sort(
+            (a, b) =>
+              a.position -
+              b.position
+          )
       );
     };
 
@@ -1178,16 +1178,22 @@ function PokerManager() {
 
       setPlayers(
         (previous) =>
-          previous.map(
-            (item) =>
-              item.id === id
-                ? {
-                    ...item,
-                    rebuys:
-                      newValue,
-                  }
-                : item
-          )
+          previous
+            .map(
+              (item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      rebuys:
+                        newValue,
+                    }
+                  : item
+            )
+            .sort(
+              (a, b) =>
+                a.position -
+                b.position
+            )
       );
 
       if (
@@ -1227,9 +1233,7 @@ function PokerManager() {
     }
 
     if (
-      !Number.isFinite(
-        value
-      ) ||
+      !Number.isFinite(value) ||
       value < 0
     ) {
       return;
@@ -1242,18 +1246,24 @@ function PokerManager() {
 
     setPlayers(
       (previous) =>
-        previous.map(
-          (player) =>
-            player.id === id
-              ? {
-                  ...player,
-                  cashOut:
-                    cleanValue,
-                  cashOutEntered:
-                    true,
-                }
-              : player
-        )
+        previous
+          .map(
+            (player) =>
+              player.id === id
+                ? {
+                    ...player,
+                    cashOut:
+                      cleanValue,
+                    cashOutEntered:
+                      true,
+                  }
+                : player
+          )
+          .sort(
+            (a, b) =>
+              a.position -
+              b.position
+          )
     );
   };
 
@@ -1269,17 +1279,23 @@ function PokerManager() {
 
     setPlayers(
       (previous) =>
-        previous.map(
-          (player) =>
-            player.id === id
-              ? {
-                  ...player,
-                  cashOut: 0,
-                  cashOutEntered:
-                    false,
-                }
-              : player
-        )
+        previous
+          .map(
+            (player) =>
+              player.id === id
+                ? {
+                    ...player,
+                    cashOut: 0,
+                    cashOutEntered:
+                      false,
+                  }
+                : player
+          )
+          .sort(
+            (a, b) =>
+              a.position -
+              b.position
+          )
     );
   };
 
@@ -1313,17 +1329,12 @@ function PokerManager() {
           );
 
       if (error) {
-        console.error(
-          "Cash-out save error:",
-          error
-        );
-
         await refreshCurrentGame();
       }
     };
 
   // ======================================================
-  // PLAYER LEAVES
+  // PLAYER LEFT
   // ======================================================
 
   const markPlayerLeft =
@@ -1362,22 +1373,25 @@ function PokerManager() {
           )}. Confirm?`
         );
 
-      if (!confirmed) {
-        return;
-      }
+      if (!confirmed) return;
 
       setPlayers(
         (previous) =>
-          previous.map(
-            (item) =>
-              item.id === id
-                ? {
-                    ...item,
-                    active:
-                      false,
-                  }
-                : item
-          )
+          previous
+            .map(
+              (item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      active: false,
+                    }
+                  : item
+            )
+            .sort(
+              (a, b) =>
+                a.position -
+                b.position
+            )
       );
 
       if (
@@ -1387,8 +1401,7 @@ function PokerManager() {
           await supabase
             .from("players")
             .update({
-              active:
-                false,
+              active: false,
 
               cash_out:
                 player.cashOut,
@@ -1437,24 +1450,28 @@ function PokerManager() {
 
       setPlayers(
         (previous) =>
-          previous.map(
-            (item) =>
-              item.id === id
-                ? {
-                    ...item,
-                    active:
-                      true,
-                  }
-                : item
-          )
+          previous
+            .map(
+              (item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      active: true,
+                    }
+                  : item
+            )
+            .sort(
+              (a, b) =>
+                a.position -
+                b.position
+            )
       );
 
       const { error } =
         await supabase
           .from("players")
           .update({
-            active:
-              true,
+            active: true,
           })
           .eq(
             "id",
@@ -1467,36 +1484,67 @@ function PokerManager() {
     };
 
   // ======================================================
-  // MONEY CALCULATIONS
+  // CALCULATIONS
   // ======================================================
+
+  const orderedPlayers =
+    useMemo(
+      () =>
+        [...players].sort(
+          (a, b) =>
+            a.position -
+            b.position
+        ),
+      [players]
+    );
+
+  const activePlayers =
+    useMemo(
+      () =>
+        orderedPlayers.filter(
+          (player) =>
+            player.active
+        ),
+      [orderedPlayers]
+    );
+
+  const leftPlayers =
+    useMemo(
+      () =>
+        orderedPlayers.filter(
+          (player) =>
+            !player.active
+        ),
+      [orderedPlayers]
+    );
+
+  const activePlayersCount =
+    activePlayers.length;
 
   const buyInPaise =
     toPaise(buyIn);
 
   const totalInvestedPaise =
     useMemo(() => {
-      return players.reduce(
+      return orderedPlayers.reduce(
         (
           total,
           player
-        ) => {
-          return (
-            total +
-            buyInPaise *
-              (1 +
-                player.rebuys)
-          );
-        },
+        ) =>
+          total +
+          buyInPaise *
+            (1 +
+              player.rebuys),
         0
       );
     }, [
-      players,
+      orderedPlayers,
       buyInPaise,
     ]);
 
   const totalCashOutPaise =
     useMemo(() => {
-      return players.reduce(
+      return orderedPlayers.reduce(
         (
           total,
           player
@@ -1507,7 +1555,7 @@ function PokerManager() {
           ),
         0
       );
-    }, [players]);
+    }, [orderedPlayers]);
 
   const totalInvested =
     toRupees(
@@ -1521,7 +1569,7 @@ function PokerManager() {
 
   const rawBalances =
     useMemo(() => {
-      return players.map(
+      return orderedPlayers.map(
         (player) => {
           const investedPaise =
             buyInPaise *
@@ -1541,7 +1589,9 @@ function PokerManager() {
             ...player,
 
             investedPaise,
+
             cashOutPaise,
+
             rawProfitPaise,
 
             invested:
@@ -1557,7 +1607,7 @@ function PokerManager() {
         }
       );
     }, [
-      players,
+      orderedPlayers,
       buyInPaise,
     ]);
 
@@ -1570,14 +1620,10 @@ function PokerManager() {
       differencePaise
     );
 
-  // ======================================================
-  // EQUAL ADJUSTMENT
-  // ======================================================
-
   const adjustedBalances =
     useMemo(() => {
       if (
-        players.length ===
+        orderedPlayers.length ===
         0
       ) {
         return [];
@@ -1589,27 +1635,25 @@ function PokerManager() {
       const baseAdjustmentPaise =
         Math.trunc(
           adjustmentTotalPaise /
-            players.length
+            orderedPlayers.length
         );
 
       let remainingPaise =
         adjustmentTotalPaise -
         baseAdjustmentPaise *
-          players.length;
+          orderedPlayers.length;
 
       return rawBalances.map(
         (player) => {
           let extraPaise = 0;
 
           if (
-            remainingPaise >
-            0
+            remainingPaise > 0
           ) {
             extraPaise = 1;
             remainingPaise -= 1;
           } else if (
-            remainingPaise <
-            0
+            remainingPaise < 0
           ) {
             extraPaise = -1;
             remainingPaise += 1;
@@ -1627,6 +1671,7 @@ function PokerManager() {
             ...player,
 
             adjustmentPaise,
+
             adjustedProfitPaise,
 
             adjustment:
@@ -1642,7 +1687,7 @@ function PokerManager() {
         }
       );
     }, [
-      players.length,
+      orderedPlayers.length,
       differencePaise,
       rawBalances,
     ]);
@@ -1664,34 +1709,7 @@ function PokerManager() {
     );
 
   // ======================================================
-  // ACTIVE / LEFT PLAYERS
-  // ======================================================
-
-  const activePlayers =
-    useMemo(
-      () =>
-        players.filter(
-          (player) =>
-            player.active
-        ),
-      [players]
-    );
-
-  const leftPlayers =
-    useMemo(
-      () =>
-        players.filter(
-          (player) =>
-            !player.active
-        ),
-      [players]
-    );
-
-  const activePlayersCount =
-    activePlayers.length;
-
-  // ======================================================
-  // SETTLEMENT CALCULATION
+  // SETTLEMENT
   // ======================================================
 
   const calculatedSettlements =
@@ -1828,9 +1846,8 @@ function PokerManager() {
       }
 
       const missingCashOut =
-        players.filter(
+        activePlayers.filter(
           (player) =>
-            player.active &&
             !player.cashOutEntered
         );
 
@@ -1856,11 +1873,9 @@ function PokerManager() {
 
       for (
         const player of
-        players
+        orderedPlayers
       ) {
-        if (!player.dbId) {
-          continue;
-        }
+        if (!player.dbId) continue;
 
         const {
           error,
@@ -1869,6 +1884,9 @@ function PokerManager() {
           .update({
             name:
               player.name.trim(),
+
+            position:
+              player.position,
 
             rebuys:
               player.rebuys,
@@ -1927,9 +1945,7 @@ function PokerManager() {
           data,
           error,
         } = await supabase
-          .from(
-            "settlements"
-          )
+          .from("settlements")
           .insert(
             calculatedSettlements.map(
               (settlement) => ({
@@ -1969,29 +1985,34 @@ function PokerManager() {
           rows.map(
             (item) => ({
               id: item.id,
+
               game_id:
                 item.game_id,
+
               payer_name:
                 item.payer_name,
+
               receiver_name:
                 item.receiver_name,
+
               amount:
                 Number(
                   item.amount
                 ),
+
               status:
                 item.status,
+
               created_at:
                 item.created_at,
+
               paid_at:
                 item.paid_at,
             })
           )
         );
       } else {
-        setSavedSettlements(
-          []
-        );
+        setSavedSettlements([]);
       }
 
       const {
@@ -2020,10 +2041,7 @@ function PokerManager() {
         return;
       }
 
-      setGameFinished(
-        true
-      );
-
+      setGameFinished(true);
       setSaving(false);
     };
 
@@ -2039,9 +2057,7 @@ function PokerManager() {
         | "pending"
         | "paid"
     ) => {
-      if (!isHost) {
-        return;
-      }
+      if (!isHost) return;
 
       const paidAt =
         status === "paid"
@@ -2051,11 +2067,10 @@ function PokerManager() {
       const {
         error,
       } = await supabase
-        .from(
-          "settlements"
-        )
+        .from("settlements")
         .update({
           status,
+
           paid_at:
             paidAt,
         })
@@ -2177,9 +2192,7 @@ function PokerManager() {
         return;
       }
 
-      setGameFinished(
-        false
-      );
+      setGameFinished(false);
     };
 
   // ======================================================
@@ -2219,39 +2232,29 @@ function PokerManager() {
   // NEW GAME
   // ======================================================
 
-  const startNewGame =
-    () => {
-      setGameId(null);
+  const startNewGame = () => {
+    setGameId(null);
 
-      setPlayers([]);
+    setPlayers([]);
 
-      setSavedSettlements(
-        []
-      );
+    setSavedSettlements([]);
 
-      setGameStarted(
-        false
-      );
+    setGameStarted(false);
 
-      setGameFinished(
-        false
-      );
+    setGameFinished(false);
 
-      setHostUserId(
-        null
-      );
+    setHostUserId(null);
 
-      setRoomCode("");
-      setJoinCode("");
+    setRoomCode("");
 
-      setNumberOfPlayers(
-        4
-      );
+    setJoinCode("");
 
-      setBuyIn(500);
+    setNumberOfPlayers(4);
 
-      router.replace("/");
-    };
+    setBuyIn(500);
+
+    router.replace("/");
+  };
 
   // ======================================================
   // LOADING
@@ -2350,8 +2353,6 @@ function PokerManager() {
         {!gameStarted && (
           <>
 
-            {/* JOIN GAME */}
-
             <section className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5 sm:p-6">
 
               <p className="text-sm uppercase tracking-[0.25em] text-emerald-400">
@@ -2394,8 +2395,6 @@ function PokerManager() {
               </div>
 
             </section>
-
-            {/* CREATE GAME */}
 
             <section className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6">
 
@@ -2464,8 +2463,6 @@ function PokerManager() {
 
             </section>
 
-            {/* PLAYER NAMES BEFORE START */}
-
             {players.length > 0 && (
               <section className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6">
 
@@ -2475,16 +2472,12 @@ function PokerManager() {
 
                 <div className="mt-5 grid gap-4 md:grid-cols-2">
 
-                  {players.map(
+                  {orderedPlayers.map(
                     (player) => (
                       <input
-                        key={
-                          player.id
-                        }
-                        value={
-                          player.name
-                        }
-                        placeholder={`Player ${player.id}`}
+                        key={player.position}
+                        value={player.name}
+                        placeholder={`Player ${player.position}`}
                         onChange={(e) =>
                           updateName(
                             player.id,
@@ -2520,8 +2513,6 @@ function PokerManager() {
 
         {gameStarted && (
           <>
-
-            {/* ROOM */}
 
             {roomCode &&
               !gameFinished && (
@@ -2570,14 +2561,14 @@ function PokerManager() {
               </div>
             )}
 
-            {/* TOP STATS */}
+            {/* STATS */}
 
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
 
               <Stat
                 title="Players"
                 value={
-                  players.length.toString()
+                  orderedPlayers.length.toString()
                 }
               />
 
@@ -2618,9 +2609,7 @@ function PokerManager() {
 
             </section>
 
-            {/* ================================================= */}
             {/* PLAYER CARDS */}
-            {/* ================================================= */}
 
             <section className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-6">
 
@@ -2654,7 +2643,7 @@ function PokerManager() {
 
               <div className="mt-6 space-y-5">
 
-                {players.map(
+                {orderedPlayers.map(
                   (player) => {
                     const investedPaise =
                       buyInPaise *
@@ -2676,10 +2665,7 @@ function PokerManager() {
 
                     return (
                       <div
-                        key={
-                          player.dbId ||
-                          player.id
-                        }
+                        key={player.position}
                         className={`rounded-2xl border p-5 ${
                           player.active
                             ? "border-white/10 bg-black/20"
@@ -2687,11 +2673,7 @@ function PokerManager() {
                         }`}
                       >
 
-                        {/* TOP */}
-
                         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-
-                          {/* NAME - LOCKED */}
 
                           <div>
 
@@ -2700,9 +2682,7 @@ function PokerManager() {
                             </p>
 
                             <p className="mt-2 text-2xl font-black">
-                              {
-                                player.name
-                              }
+                              {player.name}
                             </p>
 
                             {!player.active && (
@@ -2712,8 +2692,6 @@ function PokerManager() {
                             )}
 
                           </div>
-
-                          {/* P/L */}
 
                           <div className="sm:text-right">
 
@@ -2741,11 +2719,9 @@ function PokerManager() {
 
                         </div>
 
-                        {/* STATS */}
+                        {/* CARD STATS */}
 
                         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-
-                          {/* BUY IN */}
 
                           <div className="rounded-xl bg-white/5 p-4">
 
@@ -2760,8 +2736,6 @@ function PokerManager() {
                             </p>
 
                           </div>
-
-                          {/* REBUYS */}
 
                           <div className="rounded-xl bg-white/5 p-4">
 
@@ -2815,8 +2789,6 @@ function PokerManager() {
 
                           </div>
 
-                          {/* INVESTED */}
-
                           <div className="rounded-xl bg-white/5 p-4">
 
                             <p className="text-xs uppercase tracking-wider text-gray-500">
@@ -2836,8 +2808,6 @@ function PokerManager() {
                         {/* BOTTOM */}
 
                         <div className="mt-6 flex flex-col gap-5 border-t border-white/10 pt-5 sm:flex-row sm:items-end sm:justify-between">
-
-                          {/* LEFT BUTTON */}
 
                           <div>
 
@@ -2881,7 +2851,7 @@ function PokerManager() {
 
                           </div>
 
-                          {/* CASH OUT - BOTTOM RIGHT */}
+                          {/* CASH OUT */}
 
                           <div className="w-full sm:w-64">
 
@@ -2909,8 +2879,7 @@ function PokerManager() {
                                   e.target.value;
 
                                 if (
-                                  value ===
-                                  ""
+                                  value === ""
                                 ) {
                                   clearCashOut(
                                     player.id
@@ -2928,7 +2897,7 @@ function PokerManager() {
                               }}
                               onBlur={() => {
                                 const current =
-                                  players.find(
+                                  orderedPlayers.find(
                                     (item) =>
                                       item.id ===
                                       player.id
@@ -2966,9 +2935,7 @@ function PokerManager() {
 
               </div>
 
-              {/* ================================================= */}
-              {/* CURRENTLY PLAYING TABLE */}
-              {/* ================================================= */}
+              {/* CURRENTLY PLAYING */}
 
               <div className="mt-10">
 
@@ -3017,22 +2984,17 @@ function PokerManager() {
                         return (
                           <div
                             key={
-                              player.dbId ||
-                              player.id
+                              player.position
                             }
                             className="grid grid-cols-5 items-center border-t border-white/10 px-5 py-4"
                           >
 
                             <b>
-                              {
-                                player.name
-                              }
+                              {player.name}
                             </b>
 
                             <span>
-                              {
-                                player.rebuys
-                              }
+                              {player.rebuys}
                             </span>
 
                             <span>
@@ -3066,25 +3028,15 @@ function PokerManager() {
                       }
                     )}
 
-                    {activePlayers.length ===
-                      0 && (
-                      <div className="px-5 py-6 text-center text-gray-500">
-                        No active players.
-                      </div>
-                    )}
-
                   </div>
 
                 </div>
 
               </div>
 
-              {/* ================================================= */}
-              {/* LEFT PLAYERS TABLE */}
-              {/* ================================================= */}
+              {/* PLAYERS WHO LEFT */}
 
-              {leftPlayers.length >
-                0 && (
+              {leftPlayers.length > 0 && (
                 <div className="mt-8">
 
                   <p className="text-sm font-semibold uppercase tracking-[0.2em] text-yellow-400">
@@ -3132,22 +3084,17 @@ function PokerManager() {
                           return (
                             <div
                               key={
-                                player.dbId ||
-                                player.id
+                                player.position
                               }
                               className="grid grid-cols-5 items-center border-t border-yellow-500/10 px-5 py-4"
                             >
 
                               <b className="text-yellow-300">
-                                {
-                                  player.name
-                                }
+                                {player.name}
                               </b>
 
                               <span>
-                                {
-                                  player.rebuys
-                                }
+                                {player.rebuys}
                               </span>
 
                               <span>
@@ -3180,8 +3127,6 @@ function PokerManager() {
                 </div>
               )}
 
-              {/* FINISH */}
-
               {!gameFinished &&
                 isHost && (
                 <button
@@ -3201,9 +3146,7 @@ function PokerManager() {
 
             </section>
 
-            {/* ================================================= */}
             {/* FINAL RESULTS */}
-            {/* ================================================= */}
 
             {gameFinished && (
               <section className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-4 sm:p-6">
@@ -3216,10 +3159,7 @@ function PokerManager() {
                   Final Settlement
                 </h2>
 
-                {/* DIFFERENCE */}
-
-                {differencePaise !==
-                  0 && (
+                {differencePaise !== 0 && (
                   <div className="mt-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-5">
 
                     <p className="font-bold text-yellow-300">
@@ -3235,10 +3175,6 @@ function PokerManager() {
                           )
                         )}
                       </strong>
-                    </p>
-
-                    <p className="mt-2 text-sm text-gray-400">
-                      The difference was distributed as equally as possible across all players.
                     </p>
 
                   </div>
@@ -3267,17 +3203,11 @@ function PokerManager() {
                       <div className="flex gap-2">
 
                         <span className="rounded-full bg-emerald-500/10 px-3 py-2 text-sm font-bold text-emerald-400">
-                          {
-                            paidSettlementCount
-                          }{" "}
-                          Paid
+                          {paidSettlementCount} Paid
                         </span>
 
                         <span className="rounded-full bg-yellow-500/10 px-3 py-2 text-sm font-bold text-yellow-400">
-                          {
-                            pendingSettlementCount
-                          }{" "}
-                          Pending
+                          {pendingSettlementCount} Pending
                         </span>
 
                       </div>
@@ -3285,8 +3215,7 @@ function PokerManager() {
 
                   </div>
 
-                  {savedSettlements.length >
-                    0 && (
+                  {savedSettlements.length > 0 && (
                     <div className="mt-5 grid gap-4 sm:grid-cols-3">
 
                       <MiniStat
@@ -3319,8 +3248,7 @@ function PokerManager() {
                     </div>
                   )}
 
-                  {savedSettlements.length >
-                  0 ? (
+                  {savedSettlements.length > 0 ? (
                     <div className="mt-5 space-y-4">
 
                       {savedSettlements.map(
@@ -3330,8 +3258,7 @@ function PokerManager() {
                               settlement.id
                             }
                             className={`rounded-2xl border p-5 ${
-                              settlement.status ===
-                              "paid"
+                              settlement.status === "paid"
                                 ? "border-emerald-500/20 bg-emerald-500/5"
                                 : "border-yellow-500/20 bg-yellow-500/5"
                             }`}
@@ -3344,9 +3271,7 @@ function PokerManager() {
                                 <div className="flex flex-wrap items-center gap-3">
 
                                   <span className="font-black text-red-400">
-                                    {
-                                      settlement.payer_name
-                                    }
+                                    {settlement.payer_name}
                                   </span>
 
                                   <span className="text-gray-500">
@@ -3354,9 +3279,7 @@ function PokerManager() {
                                   </span>
 
                                   <span className="font-black text-emerald-400">
-                                    {
-                                      settlement.receiver_name
-                                    }
+                                    {settlement.receiver_name}
                                   </span>
 
                                 </div>
@@ -3369,8 +3292,7 @@ function PokerManager() {
 
                               </div>
 
-                              {settlement.status ===
-                              "paid" ? (
+                              {settlement.status === "paid" ? (
                                 <div className="flex gap-3">
 
                                   <span className="rounded-xl bg-emerald-500/10 px-4 py-3 font-black text-emerald-400">
@@ -3423,8 +3345,7 @@ function PokerManager() {
                       )}
 
                     </div>
-                  ) : calculatedSettlements.length >
-                    0 ? (
+                  ) : calculatedSettlements.length > 0 ? (
                     <div className="mt-5 space-y-3">
 
                       {calculatedSettlements.map(
@@ -3440,17 +3361,13 @@ function PokerManager() {
                             <span>
 
                               <b className="text-red-400">
-                                {
-                                  settlement.from
-                                }
+                                {settlement.from}
                               </b>
 
                               {" → "}
 
                               <b className="text-emerald-400">
-                                {
-                                  settlement.to
-                                }
+                                {settlement.to}
                               </b>
 
                             </span>
@@ -3495,16 +3412,13 @@ function PokerManager() {
                       (player) => (
                         <div
                           key={
-                            player.dbId ||
-                            player.id
+                            player.position
                           }
                           className="grid grid-cols-6 items-center border-t border-white/10 px-5 py-4"
                         >
 
                           <b>
-                            {
-                              player.name
-                            }
+                            {player.name}
                           </b>
 
                           <span>
@@ -3545,8 +3459,6 @@ function PokerManager() {
 
                 </div>
 
-                {/* FINAL BALANCE */}
-
                 <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
 
                   <p className="text-sm text-gray-500">
@@ -3563,16 +3475,13 @@ function PokerManager() {
 
                   </div>
 
-                  {finalBalancePaise ===
-                    0 && (
+                  {finalBalancePaise === 0 && (
                     <p className="mt-2 text-sm font-semibold text-emerald-400">
                       ✓ Table balances exactly
                     </p>
                   )}
 
                 </div>
-
-                {/* ACTIONS */}
 
                 {isHost && (
                   <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -3687,9 +3596,7 @@ function Money({
           : "text-gray-400"
       }`}
     >
-      {paise > 0
-        ? "+"
-        : ""}
+      {paise > 0 ? "+" : ""}
 
       {formatMoney(
         cleanValue
@@ -3707,17 +3614,9 @@ export default function Home() {
     <Suspense
       fallback={
         <main className="flex min-h-screen items-center justify-center bg-[#061a12] text-white">
-          <div className="text-center">
-
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-400">
-              ♠ Poker Night
-            </p>
-
-            <p className="mt-4 text-gray-400">
-              Loading Poker Manager...
-            </p>
-
-          </div>
+          <p className="text-gray-400">
+            Loading Poker Manager...
+          </p>
         </main>
       }
     >
